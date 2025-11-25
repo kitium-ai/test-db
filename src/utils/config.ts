@@ -93,3 +93,109 @@ export function sanitizePostgresConfig(config: PostgresConfig): Record<string, u
 export function sanitizeMongoDBConfig(config: MongoDBConfig): Record<string, unknown> {
   return sanitizeForLogging(config, SENSITIVE_MONGO_KEYS) as Record<string, unknown>;
 }
+
+export type TestEnvironmentPreset = 'local' | 'ci' | 'staging';
+
+const inferDefaultPreset = (): TestEnvironmentPreset => (configManager.get('ci') ? 'ci' : 'local');
+
+const presetDefaults: Record<
+  TestEnvironmentPreset,
+  { postgres: Partial<PostgresConfig>; mongo: Partial<MongoDBConfig> }
+> = {
+  local: {
+    postgres: { host: process.env.POSTGRES_HOST || 'localhost', ssl: false },
+    mongo: {
+      uri:
+        process.env.MONGO_URI ||
+        `mongodb://${process.env.MONGO_USER || 'root'}:${process.env.MONGO_PASSWORD || 'root'}@${
+          process.env.MONGO_HOST || 'localhost'
+        }:${process.env.MONGO_PORT || 27017}`,
+    },
+  },
+  ci: {
+    postgres: { host: 'postgres', ssl: false },
+    mongo: {
+      uri:
+        process.env.MONGO_URI ||
+        `mongodb://${process.env.MONGO_USER || 'root'}:${process.env.MONGO_PASSWORD || 'root'}@mongo:27017`,
+    },
+  },
+  staging: {
+    postgres: {
+      host:
+        process.env.STAGING_POSTGRES_HOST ||
+        process.env.POSTGRES_HOST ||
+        process.env.POSTGRES_STAGING_HOST ||
+        'staging-postgres',
+      ssl: true,
+    },
+    mongo: {
+      uri:
+        process.env.STAGING_MONGO_URI ||
+        `mongodb://${process.env.MONGO_USER || 'root'}:${process.env.MONGO_PASSWORD || 'root'}@${
+          process.env.MONGO_HOST || 'staging-mongo'
+        }:${process.env.MONGO_PORT || 27017}`,
+    },
+  },
+};
+
+const resolvePreset = (preset?: TestEnvironmentPreset): TestEnvironmentPreset =>
+  preset && presetDefaults[preset] ? preset : inferDefaultPreset();
+
+export function createPostgresPreset(
+  preset?: TestEnvironmentPreset,
+  overrides?: Partial<PostgresConfig>
+): PostgresConfig {
+  const target = resolvePreset(preset);
+  return getPostgresConfig({
+    ...presetDefaults[target].postgres,
+    ...overrides,
+  });
+}
+
+export function createMongoPreset(
+  preset?: TestEnvironmentPreset,
+  overrides?: Partial<MongoDBConfig>
+): MongoDBConfig {
+  const target = resolvePreset(preset);
+  return getMongoDBConfig({
+    ...presetDefaults[target].mongo,
+    ...overrides,
+  });
+}
+
+export class TestDbConfigBuilder {
+  private preset: TestEnvironmentPreset;
+  private postgresOverrides: Partial<PostgresConfig> = {};
+  private mongoOverrides: Partial<MongoDBConfig> = {};
+
+  constructor(initialPreset?: TestEnvironmentPreset) {
+    this.preset = resolvePreset(initialPreset);
+  }
+
+  environment(preset: TestEnvironmentPreset): this {
+    this.preset = resolvePreset(preset);
+    return this;
+  }
+
+  withPostgres(overrides: Partial<PostgresConfig>): this {
+    this.postgresOverrides = { ...this.postgresOverrides, ...overrides };
+    return this;
+  }
+
+  withMongo(overrides: Partial<MongoDBConfig>): this {
+    this.mongoOverrides = { ...this.mongoOverrides, ...overrides };
+    return this;
+  }
+
+  buildPostgres(): PostgresConfig {
+    return createPostgresPreset(this.preset, this.postgresOverrides);
+  }
+
+  buildMongo(): MongoDBConfig {
+    return createMongoPreset(this.preset, this.mongoOverrides);
+  }
+}
+
+export const createTestDbConfigBuilder = (preset?: TestEnvironmentPreset): TestDbConfigBuilder =>
+  new TestDbConfigBuilder(preset);

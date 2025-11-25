@@ -1,9 +1,20 @@
 {
-  "name": "@kitium-ai/test-db",
+  "name": "@kitiumai/test-db",
   "version": "1.0.0",
   "description": "Enterprise-ready test database utilities for PostgreSQL and MongoDB",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kitium-ai/test-db.git"
+  },
+  "homepage": "https://github.com/kitium-ai/test-db#readme",
+  "bugs": {
+    "url": "https://github.com/kitium-ai/test-db/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b --noEmit",

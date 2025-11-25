@@ -50,7 +50,13 @@ export {
   validateMongoDBConfig,
   sanitizePostgresConfig,
   sanitizeMongoDBConfig,
+  createPostgresPreset,
+  createMongoPreset,
+  createTestDbConfigBuilder,
+  TestDbConfigBuilder,
+  TestEnvironmentPreset,
 } from './utils/config.js';
+export { withTemporaryPostgresDatabase, withTemporaryMongoDatabase } from './utils/lifecycle.js';
 
 // Version info
 export const version = '1.0.0';

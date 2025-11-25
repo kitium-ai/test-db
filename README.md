@@ -385,6 +385,63 @@ const sanitized = sanitizePostgresConfig(pgConfig);
 console.log(sanitized); // Doesn't include password
 ```
 
+### Configuration Builder & Presets
+
+Use the fluent builder to apply environment presets (`local`, `ci`, `staging`) and share overrides across services:
+
+```typescript
+import { createTestDbConfigBuilder } from '@kitium-ai/test-db';
+
+const builder = createTestDbConfigBuilder('ci')
+  .withPostgres({ database: `ci_suite_${process.env.GITHUB_RUN_ID}` })
+  .withMongo({ database: `ci_suite_${process.env.GITHUB_RUN_ID}` });
+
+const pgConfig = builder.buildPostgres();
+const mongoConfig = builder.buildMongo();
+```
+
+You can also fetch a preset directly:
+
+```typescript
+import { createPostgresPreset } from '@kitium-ai/test-db';
+
+const stagingConfig = createPostgresPreset('staging', {
+  database: 'my_feature_branch',
+});
+```
+
+## Temporary Database Helpers
+
+Spin up isolated PostgreSQL or MongoDB databases for a single test suite and tear them down automatically:
+
+```typescript
+import { withTemporaryPostgresDatabase } from '@kitium-ai/test-db';
+
+await withTemporaryPostgresDatabase(
+  {
+    preset: 'ci',
+    schemas: {
+      users: '(id SERIAL PRIMARY KEY, email TEXT UNIQUE)',
+    },
+  },
+  async (db, config) => {
+    await db.query(`INSERT INTO users (email) VALUES ('demo@kitium.ai')`);
+    // run assertions...
+  }
+);
+```
+
+```typescript
+import { withTemporaryMongoDatabase } from '@kitium-ai/test-db';
+
+await withTemporaryMongoDatabase({ preset: 'local' }, async (db) => {
+  await db.seed({
+    accounts: [{ email: 'demo@kitium.ai' }],
+  });
+  // run assertions...
+});
+```
+
 ## Testing Examples
 
 ### Jest Setup with PostgreSQL
