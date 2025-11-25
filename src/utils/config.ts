@@ -2,44 +2,68 @@
  * @kitium-ai/test-db - Configuration utilities
  */
 
+import { getConfigManager } from '@kitiumai/test-core/config';
+import { deepMerge, sanitizeForLogging } from '@kitiumai/test-core/utils';
+import { log } from '@kitiumai/scripts/utils';
+import packageTemplate from '@kitiumai/config/packageBase.cjs';
 import { PostgresConfig, MongoDBConfig } from '../types/index.js';
+import { createLogger } from './logging.js';
+
+const configManager = getConfigManager();
+const logger = createLogger('TestDB:Config');
+const MIN_NODE_VERSION = packageTemplate.engines?.node ?? '>=18.0.0';
+
+const SENSITIVE_POSTGRES_KEYS = ['password'];
+const SENSITIVE_MONGO_KEYS = ['uri'];
+
+const baseCiHost = (): string => (configManager.get('ci') ? 'postgres' : 'localhost');
 
 /**
  * Get PostgreSQL configuration from environment variables
  */
 export function getPostgresConfig(overrides?: Partial<PostgresConfig>): PostgresConfig {
-  return {
-    host: process.env.POSTGRES_HOST || 'localhost',
-    port: parseInt(process.env.POSTGRES_PORT || '5432', 10),
-    username: process.env.POSTGRES_USER || 'postgres',
-    password: process.env.POSTGRES_PASSWORD || 'postgres',
-    database: process.env.POSTGRES_DB || 'test_db',
-    ssl: process.env.POSTGRES_SSL === 'true',
-    connectionTimeout: parseInt(process.env.POSTGRES_CONNECTION_TIMEOUT || '5000', 10),
-    idleTimeout: parseInt(process.env.POSTGRES_IDLE_TIMEOUT || '30000', 10),
-    maxConnections: parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '20', 10),
-    ...overrides,
+  const env = process.env;
+  const sharedTimeout = configManager.get('timeout') ?? 5000;
+  const defaults: PostgresConfig = {
+    host: env['POSTGRES_HOST'] || baseCiHost(),
+    port: parseInt(env['POSTGRES_PORT'] || '5432', 10),
+    username: env['POSTGRES_USER'] || 'postgres',
+    password: env['POSTGRES_PASSWORD'] || 'postgres',
+    database: env['POSTGRES_DB'] || 'test_db',
+    ssl: env['POSTGRES_SSL'] === 'true',
+    connectionTimeout: parseInt(env['POSTGRES_CONNECTION_TIMEOUT'] || String(sharedTimeout), 10),
+    idleTimeout: parseInt(env['POSTGRES_IDLE_TIMEOUT'] || '30000', 10),
+    maxConnections: parseInt(env['POSTGRES_MAX_CONNECTIONS'] || '20', 10),
   };
+
+  const merged = deepMerge(defaults, overrides ?? {});
+  const sanitized = sanitizePostgresConfig(merged);
+  logger.debug('Resolved PostgreSQL configuration', sanitized);
+  log('info', `[test-db] PostgreSQL configuration loaded (node ${MIN_NODE_VERSION})`);
+  return merged;
 }
 
 /**
  * Get MongoDB configuration from environment variables
  */
 export function getMongoDBConfig(overrides?: Partial<MongoDBConfig>): MongoDBConfig {
-  const defaultUri = `mongodb://${process.env.MONGO_USER || 'root'}:${
-    process.env.MONGO_PASSWORD || 'root'
-  }@${process.env.MONGO_HOST || 'localhost'}:${process.env.MONGO_PORT || 27017}`;
+  const env = process.env;
+  const defaultUri = `mongodb://${env['MONGO_USER'] || 'root'}:${env['MONGO_PASSWORD'] || 'root'}@${
+    env['MONGO_HOST'] || baseCiHost()
+  }:${env['MONGO_PORT'] || 27017}`;
 
-  return {
-    uri: process.env.MONGO_URI || defaultUri,
-    database: process.env.MONGO_DB || 'test_db',
-    connectionTimeout: parseInt(process.env.MONGO_CONNECTION_TIMEOUT || '5000', 10),
-    serverSelectionTimeout: parseInt(
-      process.env.MONGO_SERVER_SELECTION_TIMEOUT || '5000',
-      10
-    ),
-    ...overrides,
+  const defaults: MongoDBConfig = {
+    uri: env['MONGO_URI'] || defaultUri,
+    database: env['MONGO_DB'] || 'test_db',
+    connectionTimeout: parseInt(env['MONGO_CONNECTION_TIMEOUT'] || '5000', 10),
+    serverSelectionTimeout: parseInt(env['MONGO_SERVER_SELECTION_TIMEOUT'] || '5000', 10),
   };
+
+  const merged = deepMerge(defaults, overrides ?? {});
+  const sanitized = sanitizeMongoDBConfig(merged);
+  logger.debug('Resolved MongoDB configuration', sanitized);
+  log('info', `[test-db] MongoDB configuration loaded (node ${MIN_NODE_VERSION})`);
+  return merged;
 }
 
 /**
@@ -60,25 +84,12 @@ export function validateMongoDBConfig(config: MongoDBConfig): boolean {
  * Sanitize configuration for logging (removes sensitive data)
  */
 export function sanitizePostgresConfig(config: PostgresConfig): Record<string, unknown> {
-  return {
-    host: config.host,
-    port: config.port,
-    database: config.database,
-    ssl: config.ssl,
-    connectionTimeout: config.connectionTimeout,
-    idleTimeout: config.idleTimeout,
-    maxConnections: config.maxConnections,
-  };
+  return sanitizeForLogging(config, SENSITIVE_POSTGRES_KEYS) as Record<string, unknown>;
 }
 
 /**
  * Sanitize MongoDB configuration for logging
  */
 export function sanitizeMongoDBConfig(config: MongoDBConfig): Record<string, unknown> {
-  return {
-    database: config.database,
-    connectionTimeout: config.connectionTimeout,
-    serverSelectionTimeout: config.serverSelectionTimeout,
-    uri: config.uri.replace(/:[^:]*@/, ':****@'), // Mask password
-  };
+  return sanitizeForLogging(config, SENSITIVE_MONGO_KEYS) as Record<string, unknown>;
 }

@@ -16,4 +16,4 @@ export {
   setupTestDatabase,
   teardownTestDatabase,
 } from './helpers.js';
-export { PostgresConfig, IPostgresTestDB } from '../types/index.js';
+export type { PostgresConfig, IPostgresTestDB } from '../types/index.js';

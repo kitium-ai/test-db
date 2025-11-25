@@ -3,6 +3,7 @@
  */
 
 import { Pool, Client, PoolClient, QueryResult } from 'pg';
+import { measure } from '@kitiumai/scripts/utils';
 import { PostgresConfig, IPostgresTestDB, ConnectionState } from '../types/index.js';
 import { createLogger, ILogger } from '../utils/logging.js';
 import { validatePostgresConfig, sanitizePostgresConfig } from '../utils/config.js';
@@ -24,7 +25,7 @@ export class PostgresTestDB implements IPostgresTestDB {
       throw new Error('Invalid PostgreSQL configuration');
     }
     this.config = config;
-    this.logger = createLogger('PostgresTestDB', process.env.DEBUG === 'true');
+    this.logger = createLogger('PostgresTestDB');
     this.logger.info('PostgreSQL client initialized', sanitizePostgresConfig(config));
   }
 
@@ -40,28 +41,30 @@ export class PostgresTestDB implements IPostgresTestDB {
     this.state = 'connecting';
 
     try {
-      this.pool = new Pool({
-        host: this.config.host,
-        port: this.config.port,
-        user: this.config.username,
-        password: this.config.password,
-        database: this.config.database,
-        ssl: this.config.ssl,
-        connectionTimeoutMillis: this.config.connectionTimeout || 5000,
-        idleTimeoutMillis: this.config.idleTimeout || 30000,
-        max: this.config.maxConnections || 20,
-      });
+      await measure('PostgresTestDB.connect', async () => {
+        this.pool = new Pool({
+          host: this.config.host,
+          port: this.config.port,
+          user: this.config.username,
+          password: this.config.password,
+          database: this.config.database,
+          ssl: this.config.ssl,
+          connectionTimeoutMillis: this.config.connectionTimeout || 5000,
+          idleTimeoutMillis: this.config.idleTimeout || 30000,
+          max: this.config.maxConnections || 20,
+        });
 
-      // Test the connection
-      const client = await this.pool.connect();
-      client.release();
+        // Test the connection
+        const client = await this.pool.connect();
+        client.release();
+      });
 
       this.state = 'connected';
       this.logger.info('Connected to PostgreSQL database');
     } catch (error) {
       this.state = 'disconnected';
       const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Failed to connect to PostgreSQL', err);
+      this.logger.error('Failed to connect to PostgreSQL', undefined, err);
       throw err;
     }
   }
@@ -77,15 +80,17 @@ export class PostgresTestDB implements IPostgresTestDB {
     this.state = 'disconnecting';
 
     try {
-      if (this.pool) {
-        await this.pool.end();
-        this.pool = null;
-      }
+      await measure('PostgresTestDB.disconnect', async () => {
+        if (this.pool) {
+          await this.pool.end();
+          this.pool = null;
+        }
+      });
       this.state = 'disconnected';
       this.logger.info('Disconnected from PostgreSQL database');
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Error disconnecting from PostgreSQL', err);
+      this.logger.error('Error disconnecting from PostgreSQL', undefined, err);
       throw err;
     }
   }
@@ -111,7 +116,7 @@ export class PostgresTestDB implements IPostgresTestDB {
       return result;
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Query execution failed', err, { sql });
+      this.logger.error('Query execution failed', { sql }, err);
       throw err;
     }
   }
@@ -145,7 +150,7 @@ export class PostgresTestDB implements IPostgresTestDB {
     } catch (error) {
       await client.query('ROLLBACK');
       const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Transaction rolled back', err);
+      this.logger.error('Transaction rolled back', undefined, err);
       throw err;
     } finally {
       client.release();
@@ -168,7 +173,7 @@ export class PostgresTestDB implements IPostgresTestDB {
       this.logger.info('Truncated tables', { tables });
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Failed to truncate tables', err);
+      this.logger.error('Failed to truncate tables', { tables }, err);
       throw err;
     }
   }
@@ -201,7 +206,7 @@ export class PostgresTestDB implements IPostgresTestDB {
       this.logger.info('Created database', { database: dbName });
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Failed to create database', err);
+      this.logger.error('Failed to create database', { database: dbName }, err);
       throw err;
     } finally {
       await client.end();
@@ -247,7 +252,7 @@ export class PostgresTestDB implements IPostgresTestDB {
       this.logger.info('Dropped database', { database: dbName });
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Failed to drop database', err);
+      this.logger.error('Failed to drop database', { database: dbName }, err);
       throw err;
     } finally {
       await client.end();
@@ -289,10 +294,10 @@ export class PostgresTestDB implements IPostgresTestDB {
       this.logger.info('Database seeded successfully');
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Failed to seed database', err);
+      this.logger.error('Failed to seed database', undefined, err);
       throw err;
     }
   }
 }
 
-export { PostgresConfig, IPostgresTestDB };
+export type { PostgresConfig, IPostgresTestDB };

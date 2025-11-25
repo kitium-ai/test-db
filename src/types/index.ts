@@ -1,3 +1,5 @@
+import type { ILogger as KitiumLogger } from '@kitiumai/logger';
+
 /**
  * @kitium-ai/test-db - Type definitions
  */
@@ -83,12 +85,7 @@ export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'dis
 /**
  * Logger interface
  */
-export interface ILogger {
-  info(message: string, meta?: Record<string, unknown>): void;
-  error(message: string, error?: Error, meta?: Record<string, unknown>): void;
-  warn(message: string, meta?: Record<string, unknown>): void;
-  debug(message: string, meta?: Record<string, unknown>): void;
-}
+export type ILogger = KitiumLogger;
 
 /**
  * Seed data interface

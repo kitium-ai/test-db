@@ -179,10 +179,7 @@ export async function setupTestDatabase(
 /**
  * Helper to teardown test database
  */
-export async function teardownTestDatabase(
-  db: PostgresTestDB,
-  tables: string[]
-): Promise<void> {
+export async function teardownTestDatabase(db: PostgresTestDB, tables: string[]): Promise<void> {
   try {
     for (const table of tables) {
       await dropTable(db, table);

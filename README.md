@@ -13,6 +13,17 @@ Enterprise-ready test database utilities for PostgreSQL and MongoDB. Provides re
 - ✅ **Error Handling** - Comprehensive error handling and logging
 - ✅ **Security** - Sanitized logging, parameter binding, input validation
 - ✅ **Enterprise Ready** - Production-grade code quality and testing
+- ✅ **Kitium Toolchain Ready** - Shares the same config, lint, and logging stack as every other Kitium package
+
+## Kitium Platform Integration
+
+`@kitium-ai/test-db` now consumes the shared engineering toolchain so it behaves like the rest of the Kitium packages:
+
+- **Configuration & Environment** — `getPostgresConfig` / `getMongoDBConfig` automatically merge env vars with the global `@kitiumai/test-core` config manager so CI and local runs stay in sync.
+- **Logging** — all log output now routes through `@kitiumai/logger`, which means trace IDs, structured metadata, and redaction rules match the rest of the platform.
+- **DX Consistency** — scripts (build, lint, format, release) mirror the `@kitiumai/config` template, and shared utilities from `@kitiumai/scripts` power timing/metrics hooks inside the database clients.
+
+These changes make it easier to drop this package into any Kitium workspace without extra setup.
 
 ## Installation
 
@@ -408,10 +419,7 @@ import { setupMongoDBTestDatabase, teardownMongoDBTestDatabase } from '@kitium-a
 let testDB: any;
 
 beforeAll(async () => {
-  testDB = await setupMongoDBTestDatabase(
-    { database: 'test_db_jest' },
-    ['users', 'posts']
-  );
+  testDB = await setupMongoDBTestDatabase({ database: 'test_db_jest' }, ['users', 'posts']);
 });
 
 afterAll(async () => {
@@ -427,7 +435,9 @@ The package provides comprehensive error handling:
 import { createPostgresTestDB } from '@kitium-ai/test-db';
 
 try {
-  const db = createPostgresTestDB({ /* config */ });
+  const db = createPostgresTestDB({
+    /* config */
+  });
   await db.connect();
 
   // Your database operations
@@ -470,12 +480,7 @@ All database operations will be logged with timestamps and context information.
 Full TypeScript support with strict type checking:
 
 ```typescript
-import {
-  PostgresTestDB,
-  MongoDBTestDB,
-  PostgresConfig,
-  MongoDBConfig,
-} from '@kitium-ai/test-db';
+import { PostgresTestDB, MongoDBTestDB, PostgresConfig, MongoDBConfig } from '@kitium-ai/test-db';
 
 const pgDB: PostgresTestDB = createPostgresTestDB(pgConfig);
 const mongoDBClient: MongoDBTestDB = createMongoDBTestDB(mongoConfig);

@@ -76,7 +76,7 @@ describe('MongoDB Test Database', () => {
       try {
         await db.connect();
         await db.dropCollection(collectionName);
-      } catch (e) {
+      } catch {
         // Collection might not exist
       } finally {
         await db.disconnect();
@@ -204,7 +204,7 @@ describe('MongoDB Test Database', () => {
       try {
         await db.connect();
         await db.dropCollection(collectionName);
-      } catch (e) {
+      } catch {
         // Collection might not exist
       } finally {
         await db.disconnect();

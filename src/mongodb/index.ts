@@ -17,4 +17,4 @@ export {
   teardownTestDatabase,
   aggregate,
 } from './helpers.js';
-export { MongoDBConfig, IMongoDBTestDB } from '../types/index.js';
+export type { MongoDBConfig, IMongoDBTestDB } from '../types/index.js';

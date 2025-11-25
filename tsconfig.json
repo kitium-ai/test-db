@@ -1,25 +1,20 @@
 {
+  "extends": "../../../../tooling/config/tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2020",
     "module": "commonjs",
-    "lib": ["ES2020"],
     "outDir": "./dist",
     "rootDir": "./src",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "noImplicitAny": true,
-    "strictNullChecks": true,
-    "strictFunctionTypes": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true
+    "baseUrl": ".",
+    "paths": {
+      "@kitiumai/logger": ["../../../../packages/core/@kitiumai/logger/dist/index.d.ts"],
+      "@kitiumai/logger/*": ["../../../../packages/core/@kitiumai/logger/dist/*"],
+      "@kitiumai/test-core": ["../test-core/dist/index.d.ts"],
+      "@kitiumai/test-core/*": ["../test-core/dist/*"],
+      "@kitiumai/scripts": ["../../../../tooling/scripts/dist/index.d.ts"],
+      "@kitiumai/scripts/*": ["../../../../tooling/scripts/dist/*"],
+      "@kitiumai/config/*": ["../../../../tooling/config/*"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "tests"]

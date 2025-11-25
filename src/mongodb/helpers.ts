@@ -93,10 +93,7 @@ export async function countDocuments(
 /**
  * Helper to clear collection
  */
-export async function clearCollection(
-  db: MongoDBTestDB,
-  collectionName: string
-): Promise<void> {
+export async function clearCollection(db: MongoDBTestDB, collectionName: string): Promise<void> {
   await deleteDocuments(db, collectionName, {});
 }
 

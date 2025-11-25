@@ -5,7 +5,12 @@
  * for PostgreSQL testing
  */
 
-import { createPostgresTestDB, insertData, fetchData, countRecords } from '../src/postgres/index.js';
+import {
+  createPostgresTestDB,
+  insertData,
+  fetchData,
+  countRecords,
+} from '../src/postgres/index.js';
 import { PostgresConfig } from '../src/types/index.js';
 
 describe('PostgreSQL Test Database', () => {
@@ -137,9 +142,7 @@ describe('PostgreSQL Test Database', () => {
 
       try {
         await db.connect();
-        const testData = [
-          { name: 'John Doe', email: 'john@example.com', age: 30 },
-        ];
+        const testData = [{ name: 'John Doe', email: 'john@example.com', age: 30 }];
 
         await insertData(db, tableName, testData);
         const results = await fetchData(db, tableName);
@@ -168,9 +171,8 @@ describe('PostgreSQL Test Database', () => {
 
         await insertData(db, tableName, testData);
 
-        const count = await countRecords(db, tableName, { 'age >': 30 });
-        // Note: This is a simplified example; actual implementation would need proper query building
-        expect(count).toBeGreaterThanOrEqual(0);
+        const count = await countRecords(db, tableName, { age: 30 });
+        expect(count).toBeGreaterThanOrEqual(1);
       } finally {
         await db.disconnect();
       }
@@ -215,10 +217,10 @@ describe('PostgreSQL Test Database', () => {
         await db.connect();
 
         await db.transaction(async (client) => {
-          await client.query(
-            `INSERT INTO ${tableName} (amount, status) VALUES ($1, $2)`,
-            [100.0, 'pending']
-          );
+          await client.query(`INSERT INTO ${tableName} (amount, status) VALUES ($1, $2)`, [
+            100.0,
+            'pending',
+          ]);
         });
 
         const result = await db.query(`SELECT * FROM ${tableName}`);
