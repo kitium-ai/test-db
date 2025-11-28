@@ -57,6 +57,14 @@ export {
   type TestEnvironmentPreset,
 } from './utils/config.js';
 export { withTemporaryPostgresDatabase, withTemporaryMongoDatabase } from './utils/lifecycle.js';
+export { applySqlFixtures, applyMongoFixtures, snapshotTableSchema } from './utils/fixtures.js';
+export {
+  createPostgresTransactionalHarness,
+  withPerTestMongoDatabase,
+  withWorkerPostgresDatabase,
+} from './utils/isolation.js';
+export { installPostgresTestHarness, installMongoTestHarness } from './utils/frameworks.js';
+export { withSpan } from './utils/telemetry.js';
 
 // Version info
 export const version = '1.0.0';

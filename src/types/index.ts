@@ -53,9 +53,12 @@ export interface ITestDatabase {
 export interface IPostgresTestDB extends ITestDatabase {
   query(sql: string, params?: unknown[]): Promise<unknown>;
   transaction(callback: (client: unknown) => Promise<void>): Promise<void>;
+  transactionalTest(callback: (client: unknown) => Promise<void>): Promise<void>;
+  leaseClient(): Promise<unknown>;
   truncateTables(tables: string[]): Promise<void>;
   createDatabase(dbName: string): Promise<void>;
   dropDatabase(dbName: string): Promise<void>;
+  getConfig(): DatabaseConfig;
 }
 
 /**
@@ -66,6 +69,7 @@ export interface IMongoDBTestDB extends ITestDatabase {
   dropCollection(name: string): Promise<void>;
   dropDatabase(): Promise<void>;
   transaction(callback: (session: unknown) => Promise<void>): Promise<void>;
+  getConfig(): MongoDBConfig;
 }
 
 /**

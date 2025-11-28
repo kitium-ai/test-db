@@ -7,6 +7,7 @@ import { measure } from '@kitiumai/scripts/utils';
 import { MongoDBConfig, IMongoDBTestDB, ConnectionState } from '../types/index.js';
 import { createLogger, ILogger } from '../utils/logging.js';
 import { validateMongoDBConfig, sanitizeMongoDBConfig } from '../utils/config.js';
+import { withSpan } from '../utils/telemetry.js';
 
 /**
  * MongoDB Test Database Client
@@ -30,6 +31,10 @@ export class MongoDBTestDB implements IMongoDBTestDB {
     this.logger.info('MongoDB client initialized', sanitizeMongoDBConfig(config));
   }
 
+  public getConfig(): MongoDBConfig {
+    return { ...this.config };
+  }
+
   /**
    * Connect to MongoDB database
    */
@@ -42,21 +47,23 @@ export class MongoDBTestDB implements IMongoDBTestDB {
     this.state = 'connecting';
 
     try {
-      await measure('MongoDBTestDB.connect', async () => {
-        this.client = new MongoClient(this.config.uri, {
-          connectTimeoutMS: this.config.connectionTimeout || 5000,
-          serverSelectionTimeoutMS: this.config.serverSelectionTimeout || 5000,
-          maxPoolSize: 20,
-          minPoolSize: 5,
-        });
+      await measure('MongoDBTestDB.connect', async () =>
+        withSpan('mongodb.connect', async () => {
+          this.client = new MongoClient(this.config.uri, {
+            connectTimeoutMS: this.config.connectionTimeout || 5000,
+            serverSelectionTimeoutMS: this.config.serverSelectionTimeout || 5000,
+            maxPoolSize: 20,
+            minPoolSize: 5,
+          });
 
-        await this.client.connect();
+          await this.client.connect();
 
-        // Verify connection
-        await this.client.db('admin').command({ ping: 1 });
+          // Verify connection
+          await this.client.db('admin').command({ ping: 1 });
 
-        this.db = this.client.db(this.config.database);
-      });
+          this.db = this.client.db(this.config.database);
+        })
+      );
 
       this.state = 'connected';
       this.logger.info('Connected to MongoDB database');
@@ -79,13 +86,15 @@ export class MongoDBTestDB implements IMongoDBTestDB {
     this.state = 'disconnecting';
 
     try {
-      await measure('MongoDBTestDB.disconnect', async () => {
-        if (this.client) {
-          await this.client.close();
-          this.client = null;
-          this.db = null;
-        }
-      });
+      await measure('MongoDBTestDB.disconnect', async () =>
+        withSpan('mongodb.disconnect', async () => {
+          if (this.client) {
+            await this.client.close();
+            this.client = null;
+            this.db = null;
+          }
+        })
+      );
       this.state = 'disconnected';
       this.logger.info('Disconnected from MongoDB database');
     } catch (error) {
@@ -125,7 +134,9 @@ export class MongoDBTestDB implements IMongoDBTestDB {
       // Parse simple query format for basic operations
       // For complex queries, use collection() method directly
       this.logger.debug('Executing query', { query });
-      const result = await this.db.collection('_query').findOne({});
+      const result = await withSpan('mongodb.query', () => this.db!.collection('_query').findOne({ query }), {
+        query,
+      });
       return result ?? null;
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
@@ -145,11 +156,13 @@ export class MongoDBTestDB implements IMongoDBTestDB {
     const session = this.client.startSession();
 
     try {
-      await session.withTransaction(async () => {
-        this.logger.debug('Transaction started');
-        await callback(session);
+      await withSpan('mongodb.transaction', async () => {
+        await session.withTransaction(async () => {
+          this.logger.debug('Transaction started');
+          await callback(session);
+        });
+        this.logger.debug('Transaction committed');
       });
-      this.logger.debug('Transaction committed');
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       this.logger.error('Transaction failed', undefined, err);
@@ -168,7 +181,7 @@ export class MongoDBTestDB implements IMongoDBTestDB {
     }
 
     try {
-      await this.db.collection(name).drop();
+      await withSpan('mongodb.collection.drop', () => this.db!.collection(name).drop(), { collection: name });
       this.logger.info('Dropped collection', { collection: name });
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
@@ -189,7 +202,7 @@ export class MongoDBTestDB implements IMongoDBTestDB {
     }
 
     try {
-      await this.db.dropDatabase();
+      await withSpan('mongodb.database.drop', () => this.db!.dropDatabase());
       this.logger.info('Dropped database');
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
@@ -214,17 +227,19 @@ export class MongoDBTestDB implements IMongoDBTestDB {
     }
 
     try {
-      for (const [collectionName, documents] of Object.entries(data)) {
-        if (!Array.isArray(documents)) {
-          this.logger.warn('Invalid seed data for collection', { collection: collectionName });
-          continue;
-        }
+      await withSpan('mongodb.seed', async () => {
+        for (const [collectionName, documents] of Object.entries(data)) {
+          if (!Array.isArray(documents)) {
+            this.logger.warn('Invalid seed data for collection', { collection: collectionName });
+            continue;
+          }
 
-        if (documents.length > 0) {
-          const collection = this.db.collection(collectionName);
-          await collection.insertMany(documents as Record<string, unknown>[]);
+          if (documents.length > 0) {
+            const collection = this.db.collection(collectionName);
+            await collection.insertMany(documents as Record<string, unknown>[]);
+          }
         }
-      }
+      });
 
       this.logger.info('Database seeded successfully');
     } catch (error) {
