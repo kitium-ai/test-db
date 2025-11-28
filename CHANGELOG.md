@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [v2.0.0] - 2025-11-28
 
 - Adopt shared Kitium toolchain: package.json scripts now match the `@kitiumai/config` template, the shared Prettier config is wired up, and TypeScript/ESLint consume the organization presets.
 - Replace the internal logger/config helpers with the `@kitiumai/logger`, `@kitiumai/test-core`, and `@kitiumai/scripts` APIs so tracing, sanitization, and configuration resolution behave like the rest of the platform.
