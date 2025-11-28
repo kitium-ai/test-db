@@ -1,8 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { createLogger } from './logging.js';
-import type { PostgresTestDB } from '../postgres/client.js';
+
 import type { MongoDBTestDB } from '../mongodb/client.js';
+import type { PostgresTestDB } from '../postgres/client.js';
+import { createLogger } from './logging.js';
 import { withSpan } from './telemetry.js';
 
 const logger = createLogger('TestDB:Fixtures');
@@ -26,7 +27,9 @@ export const applySqlFixtures = async (
 
     for (const statement of statements) {
       try {
-        await withSpan('postgres.fixture.apply', () => db.query(statement), { fixturePath: absolutePath });
+        await withSpan('postgres.fixture.apply', () => db.query(statement), {
+          fixturePath: absolutePath,
+        });
       } catch (error) {
         logger.error('Failed to apply SQL fixture', { fixturePath: absolutePath }, error as Error);
         if (options?.stopOnError) {
@@ -42,12 +45,17 @@ export interface MongoFixtureDocument {
   documents: Record<string, unknown>[];
 }
 
-export const applyMongoFixtures = async (db: MongoDBTestDB, fixtures: MongoFixtureDocument[]): Promise<void> => {
+export const applyMongoFixtures = async (
+  db: MongoDBTestDB,
+  fixtures: MongoFixtureDocument[]
+): Promise<void> => {
   for (const fixture of fixtures) {
     await withSpan(
       'mongodb.fixture.apply',
       async () => {
-        const collection = (await db.collection(fixture.collection)) as { insertMany: (docs: never[]) => Promise<void> };
+        const collection = (await db.collection(fixture.collection)) as {
+          insertMany: (docs: never[]) => Promise<void>;
+        };
         if (fixture.documents.length) {
           await collection.insertMany(fixture.documents as never[]);
         }
@@ -57,7 +65,10 @@ export const applyMongoFixtures = async (db: MongoDBTestDB, fixtures: MongoFixtu
   }
 };
 
-export const snapshotTableSchema = async (db: PostgresTestDB, table: string): Promise<Record<string, unknown>[]> => {
+export const snapshotTableSchema = async (
+  db: PostgresTestDB,
+  table: string
+): Promise<Record<string, unknown>[]> => {
   const sql = `SELECT column_name, data_type, is_nullable, column_default
     FROM information_schema.columns
     WHERE table_name = $1

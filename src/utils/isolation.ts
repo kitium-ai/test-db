@@ -1,11 +1,14 @@
 import { randomUUID } from 'node:crypto';
+
 import type { PoolClient } from 'pg';
-import { createPostgresTestDB } from '../postgres/helpers.js';
+
+import type { MongoDBTestDB } from '../mongodb/client.js';
 import { createMongoDBTestDB } from '../mongodb/helpers.js';
 import type { PostgresTestDB } from '../postgres/client.js';
-import type { MongoDBTestDB } from '../mongodb/client.js';
+import { createPostgresTestDB } from '../postgres/helpers.js';
 import type { MongoDBConfig, PostgresConfig } from '../types/index.js';
-import { createTestDbConfigBuilder, type TestEnvironmentPreset } from './config.js';
+import type { TestEnvironmentPreset } from './config.js';
+import { createTestDbConfigBuilder } from './config.js';
 import { withSpan } from './telemetry.js';
 
 export interface TransactionalHarness {
@@ -54,7 +57,10 @@ export interface MongoIsolationOptions {
 
 export const withPerTestMongoDatabase = (
   options: MongoIsolationOptions,
-  lifecycle: { beforeEach: (cb: () => Promise<void>) => void; afterEach: (cb: () => Promise<void>) => void }
+  lifecycle: {
+    beforeEach: (cb: () => Promise<void>) => void;
+    afterEach: (cb: () => Promise<void>) => void;
+  }
 ): { getDb: () => MongoDBTestDB } => {
   const builder = createTestDbConfigBuilder(options?.preset).withMongo(options?.overrides ?? {});
   let db: MongoDBTestDB;
@@ -88,12 +94,15 @@ export interface PostgresHarnessOptions {
 }
 
 export const withWorkerPostgresDatabase = (
-  lifecycle: { beforeAll: (cb: () => Promise<void>) => void; afterAll: (cb: () => Promise<void>) => void },
+  lifecycle: {
+    beforeAll: (cb: () => Promise<void>) => void;
+    afterAll: (cb: () => Promise<void>) => void;
+  },
   options?: PostgresHarnessOptions
 ): { getDb: () => PostgresTestDB } => {
   const builder = createTestDbConfigBuilder(options?.preset).withPostgres(options?.overrides ?? {});
   const baseConfig = builder.buildPostgres();
-  const database = options?.databaseName ?? `${randomUUID().replace(/-/g, '').slice(0, 8)}_kitium`; 
+  const database = options?.databaseName ?? `${randomUUID().replace(/-/g, '').slice(0, 8)}_kitium`;
   let db: PostgresTestDB;
 
   lifecycle.beforeAll(async () => {

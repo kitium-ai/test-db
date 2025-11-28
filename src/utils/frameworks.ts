@@ -1,11 +1,16 @@
+import type { MongoDBTestDB } from '../mongodb/client.js';
+import { createMongoDBTestDB } from '../mongodb/helpers.js';
+import type { PostgresTestDB } from '../postgres/client.js';
+import type { MongoDBConfig, PostgresConfig } from '../types/index.js';
 import type { TestEnvironmentPreset } from './config.js';
 import { createTestDbConfigBuilder } from './config.js';
-import type { PostgresConfig, MongoDBConfig } from '../types/index.js';
-import type { PostgresTestDB } from '../postgres/client.js';
-import type { MongoDBTestDB } from '../mongodb/client.js';
-import { createPostgresTransactionalHarness, withPerTestMongoDatabase, withWorkerPostgresDatabase } from './isolation.js';
-import { applySqlFixtures, applyMongoFixtures, type MongoFixtureDocument } from './fixtures.js';
-import { createMongoDBTestDB } from '../mongodb/helpers.js';
+import type { MongoFixtureDocument } from './fixtures.js';
+import { applyMongoFixtures, applySqlFixtures } from './fixtures.js';
+import {
+  createPostgresTransactionalHarness,
+  withPerTestMongoDatabase,
+  withWorkerPostgresDatabase,
+} from './isolation.js';
 
 export interface JestVitestLifecycle {
   beforeAll: (cb: () => Promise<void>) => void;
@@ -29,9 +34,9 @@ export const installPostgresTestHarness = (
   handler: (db: PostgresTestDB, config: PostgresConfig) => Promise<void>
 ): void => {
   const { getDb } = withWorkerPostgresDatabase(lifecycle, {
-    preset: options.preset,
-    overrides: options.overrides,
-    schemas: options.schemas,
+    ...(options.preset !== undefined && { preset: options.preset }),
+    ...(options.overrides !== undefined && { overrides: options.overrides }),
+    ...(options.schemas !== undefined && { schemas: options.schemas }),
   });
 
   lifecycle.beforeAll(async () => {
@@ -44,7 +49,9 @@ export const installPostgresTestHarness = (
   });
 
   if (options.useTransactionalIsolation) {
-    const harness = createPostgresTransactionalHarness(getDb(), { tablesToTruncate: options.truncateTables });
+    const harness = createPostgresTransactionalHarness(getDb(), {
+      ...(options.truncateTables !== undefined && { tablesToTruncate: options.truncateTables }),
+    });
     lifecycle.beforeEach(harness.beforeEach);
     lifecycle.afterEach(harness.afterEach);
   } else if (options.truncateTables?.length) {
@@ -69,7 +76,10 @@ export const installMongoTestHarness = (
 ): void => {
   if (options.perTestDatabase) {
     const { getDb } = withPerTestMongoDatabase(
-      { preset: options.preset, overrides: options.overrides },
+      {
+        ...(options.preset !== undefined && { preset: options.preset }),
+        ...(options.overrides !== undefined && { overrides: options.overrides }),
+      },
       { beforeEach: lifecycle.beforeEach, afterEach: lifecycle.afterEach }
     );
 

@@ -2,11 +2,12 @@
  * @kitium-ai/test-db - MongoDB Test Client
  */
 
-import { MongoClient, Db, ClientSession } from 'mongodb';
 import { measure } from '@kitiumai/scripts/utils';
-import { MongoDBConfig, IMongoDBTestDB, ConnectionState } from '../types/index.js';
+import { ClientSession, Db, MongoClient } from 'mongodb';
+
+import { ConnectionState, IMongoDBTestDB, MongoDBConfig } from '../types/index.js';
+import { sanitizeMongoDBConfig, validateMongoDBConfig } from '../utils/config.js';
 import { createLogger, ILogger } from '../utils/logging.js';
-import { validateMongoDBConfig, sanitizeMongoDBConfig } from '../utils/config.js';
 import { withSpan } from '../utils/telemetry.js';
 
 /**
@@ -134,9 +135,13 @@ export class MongoDBTestDB implements IMongoDBTestDB {
       // Parse simple query format for basic operations
       // For complex queries, use collection() method directly
       this.logger.debug('Executing query', { query });
-      const result = await withSpan('mongodb.query', () => this.db!.collection('_query').findOne({ query }), {
-        query,
-      });
+      const result = await withSpan(
+        'mongodb.query',
+        () => this.db!.collection('_query').findOne({ query }),
+        {
+          query,
+        }
+      );
       return result ?? null;
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
@@ -181,7 +186,9 @@ export class MongoDBTestDB implements IMongoDBTestDB {
     }
 
     try {
-      await withSpan('mongodb.collection.drop', () => this.db!.collection(name).drop(), { collection: name });
+      await withSpan('mongodb.collection.drop', () => this.db!.collection(name).drop(), {
+        collection: name,
+      });
       this.logger.info('Dropped collection', { collection: name });
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
@@ -235,6 +242,7 @@ export class MongoDBTestDB implements IMongoDBTestDB {
           }
 
           if (documents.length > 0) {
+            if (!this.db) throw new Error('Database not connected');
             const collection = this.db.collection(collectionName);
             await collection.insertMany(documents as Record<string, unknown>[]);
           }
@@ -260,4 +268,4 @@ export class MongoDBTestDB implements IMongoDBTestDB {
   }
 }
 
-export type { MongoDBConfig, IMongoDBTestDB };
+export type { IMongoDBTestDB, MongoDBConfig };

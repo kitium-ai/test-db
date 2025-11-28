@@ -49,10 +49,17 @@
   "author": "Kitium AI",
   "license": "MIT",
   "dependencies": {
+    "@eslint/js": "^9.39.1",
     "@kitiumai/logger": "^2.0.0",
     "dotenv": "^16.3.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-prettier": "^5.5.4",
+    "eslint-plugin-security": "^3.0.1",
+    "eslint-plugin-simple-import-sort": "^12.1.1",
     "mongodb": "^6.3.0",
-    "pg": "^8.11.3"
+    "pg": "^8.11.3",
+    "typescript-eslint": "^8.48.0"
   },
   "devDependencies": {
     "@kitiumai/config": "^2.0.0",

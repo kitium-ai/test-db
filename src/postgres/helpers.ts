@@ -2,9 +2,9 @@
  * @kitium-ai/test-db - PostgreSQL Helper functions
  */
 
-import { PostgresTestDB } from './client.js';
 import { PostgresConfig } from '../types/index.js';
 import { getPostgresConfig } from '../utils/config.js';
+import { PostgresTestDB } from './client.js';
 
 /**
  * Create a PostgreSQL test database instance

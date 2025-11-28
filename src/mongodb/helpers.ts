@@ -2,10 +2,11 @@
  * @kitium-ai/test-db - MongoDB Helper functions
  */
 
-import { MongoDBTestDB } from './client.js';
+import { Collection } from 'mongodb';
+
 import { MongoDBConfig } from '../types/index.js';
 import { getMongoDBConfig } from '../utils/config.js';
-import { Collection } from 'mongodb';
+import { MongoDBTestDB } from './client.js';
 
 /**
  * Create a MongoDB test database instance

@@ -1,14 +1,18 @@
 import { performance } from 'node:perf_hooks';
+
 import { createLogger } from './logging.js';
 
 const logger = createLogger('TestDB:Telemetry');
 
 interface TelemetryApi {
   trace: {
-    getTracer: (name: string) => { startSpan: (name: string, options?: { attributes?: Record<string, unknown> }) => Span };
+    getTracer: (name: string) => {
+      startSpan: (name: string, options?: { attributes?: Record<string, unknown> }) => Span;
+    };
   };
   context: { active: () => unknown; with: (ctx: unknown, fn: () => unknown) => unknown };
   traceContext: unknown;
+  // eslint-disable-next-line @typescript-eslint/naming-convention
   SpanStatusCode?: { ERROR: number };
 }
 
@@ -22,8 +26,9 @@ interface Span {
 const loadTelemetryApi = async (): Promise<TelemetryApi | null> => {
   try {
     const api = await import('@opentelemetry/api');
-    return api as TelemetryApi;
-  } catch (error) {
+    return (api as unknown) as TelemetryApi;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  } catch (_error) {
     logger.debug('OpenTelemetry not available, falling back to logger metrics');
     return null;
   }
@@ -45,16 +50,22 @@ export async function withSpan<T>(
       return result;
     } catch (error) {
       const durationMs = performance.now() - start;
-      logger.error('Operation failed (no-op span)', { name, durationMs, attributes }, error as Error);
+      logger.error(
+        'Operation failed (no-op span)',
+        { name, durationMs, attributes },
+        error as Error
+      );
       throw error;
     }
   }
 
   const tracer = telemetry.trace.getTracer('@kitium-ai/test-db');
-  const span: Span = tracer.startSpan(name, { attributes });
+  const span: Span = tracer.startSpan(name, {
+    ...(attributes !== undefined && { attributes }),
+  });
 
   try {
-    const result = await telemetry.context.with(telemetry.context.active(), fn) as T;
+    const result = (await telemetry.context.with(telemetry.context.active(), fn)) as T;
     return result;
   } catch (error) {
     span.recordException?.(error);

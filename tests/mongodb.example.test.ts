@@ -6,12 +6,12 @@
  */
 
 import {
-  createMongoDBTestDB,
-  insertDocuments,
-  findDocuments,
   countDocuments,
-  updateDocuments,
+  createMongoDBTestDB,
   deleteDocuments,
+  findDocuments,
+  insertDocuments,
+  updateDocuments,
 } from '../src/mongodb/index.js';
 import { MongoDBConfig } from '../src/types/index.js';
 

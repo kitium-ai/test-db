@@ -1,6 +1,6 @@
 import {
-  createPostgresPreset,
   createMongoPreset,
+  createPostgresPreset,
   createTestDbConfigBuilder,
 } from '../src/utils/config.js';
 

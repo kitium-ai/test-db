@@ -2,14 +2,23 @@
  * @kitium-ai/test-db - Configuration utilities
  */
 
-import { getConfigManager, deepMerge, sanitizeForLogging } from '@kitiumai/test-core';
-import { log } from '@kitiumai/scripts/utils';
 import packageTemplate from '@kitiumai/config/packageBase.cjs';
-import { PostgresConfig, MongoDBConfig } from '../types/index.js';
+import { log } from '@kitiumai/scripts/utils';
+import { deepMerge, getConfigManager, sanitizeForLogging } from '@kitiumai/test-core';
+
+import { MongoDBConfig, PostgresConfig } from '../types/index.js';
 import { createLogger } from './logging.js';
 
 const configManager = getConfigManager();
-const logger = createLogger('TestDB:Config');
+let logger: ReturnType<typeof createLogger> | null = null;
+
+function getLogger() {
+  if (!logger) {
+    logger = createLogger('TestDB:Config');
+  }
+  return logger;
+}
+
 const MIN_NODE_VERSION = packageTemplate.engines?.node ?? '>=18.0.0';
 
 const SENSITIVE_POSTGRES_KEYS = ['password'];
@@ -37,7 +46,7 @@ export function getPostgresConfig(overrides?: Partial<PostgresConfig>): Postgres
 
   const merged = deepMerge(defaults, overrides ?? {});
   const sanitized = sanitizePostgresConfig(merged);
-  logger.debug('Resolved PostgreSQL configuration', sanitized);
+  getLogger().debug('Resolved PostgreSQL configuration', sanitized);
   log('info', `[test-db] PostgreSQL configuration loaded (node ${MIN_NODE_VERSION})`);
   return merged;
 }
@@ -60,7 +69,7 @@ export function getMongoDBConfig(overrides?: Partial<MongoDBConfig>): MongoDBCon
 
   const merged = deepMerge(defaults, overrides ?? {});
   const sanitized = sanitizeMongoDBConfig(merged);
-  logger.debug('Resolved MongoDB configuration', sanitized);
+  getLogger().debug('Resolved MongoDB configuration', sanitized);
   log('info', `[test-db] MongoDB configuration loaded (node ${MIN_NODE_VERSION})`);
   return merged;
 }

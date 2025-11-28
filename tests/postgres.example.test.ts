@@ -6,10 +6,10 @@
  */
 
 import {
-  createPostgresTestDB,
-  insertData,
-  fetchData,
   countRecords,
+  createPostgresTestDB,
+  fetchData,
+  insertData,
 } from '../src/postgres/index.js';
 import { PostgresConfig } from '../src/types/index.js';
 

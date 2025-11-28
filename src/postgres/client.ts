@@ -2,11 +2,12 @@
  * @kitium-ai/test-db - PostgreSQL Test Client
  */
 
-import { Pool, Client, PoolClient, QueryResult } from 'pg';
 import { measure } from '@kitiumai/scripts/utils';
-import { PostgresConfig, IPostgresTestDB, ConnectionState } from '../types/index.js';
+import { Client, Pool, PoolClient, QueryResult } from 'pg';
+
+import { ConnectionState, IPostgresTestDB, PostgresConfig } from '../types/index.js';
+import { sanitizePostgresConfig, validatePostgresConfig } from '../utils/config.js';
 import { createLogger, ILogger } from '../utils/logging.js';
-import { validatePostgresConfig, sanitizePostgresConfig } from '../utils/config.js';
 import { withSpan } from '../utils/telemetry.js';
 
 /**
@@ -352,4 +353,4 @@ export class PostgresTestDB implements IPostgresTestDB {
   }
 }
 
-export type { PostgresConfig, IPostgresTestDB };
+export type { IPostgresTestDB, PostgresConfig };
