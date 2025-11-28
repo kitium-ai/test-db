@@ -1,9 +1,31 @@
 {
   "name": "@kitiumai/test-db",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Enterprise-ready test database utilities for PostgreSQL and MongoDB",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./postgres": {
+      "types": "./dist/postgres/index.d.ts",
+      "import": "./dist/postgres/index.js",
+      "default": "./dist/postgres/index.js"
+    },
+    "./mongodb": {
+      "types": "./dist/mongodb/index.d.ts",
+      "import": "./dist/mongodb/index.js",
+      "default": "./dist/mongodb/index.js"
+    },
+    "./utils": {
+      "types": "./dist/utils/config.d.ts",
+      "import": "./dist/utils/config.js",
+      "default": "./dist/utils/config.js"
+    }
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/kitium-ai/test-db.git"
@@ -44,10 +66,63 @@
     "test-utilities",
     "enterprise",
     "kitiumai",
-    "kitium"
+    "kitium",
+    "test-database",
+    "database-testing",
+    "postgres",
+    "postgres-testing",
+    "mongodb-testing",
+    "test-helpers",
+    "test-setup",
+    "integration-testing",
+    "database-fixtures",
+    "test-data",
+    "sql",
+    "nosql",
+    "pg",
+    "mongo",
+    "test-db",
+    "database-utilities",
+    "db-testing",
+    "test-framework",
+    "jest",
+    "vitest",
+    "mocha",
+    "test-runner",
+    "ci-cd",
+    "continuous-integration",
+    "devops",
+    "quality-assurance",
+    "qa",
+    "typescript",
+    "javascript",
+    "nodejs",
+    "node",
+    "test-automation",
+    "database-migration",
+    "schema-testing",
+    "data-seeding",
+    "test-isolation",
+    "transaction-testing",
+    "database-cleanup",
+    "temporary-database",
+    "test-lifecycle"
   ],
   "author": "Kitium AI",
   "license": "MIT",
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/**/*.d.ts.map",
+    "!dist/**/__tests__/**",
+    "!dist/**/examples/**",
+    "!dist/**/*.test.*",
+    "!dist/**/*.spec.*",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
   "dependencies": {
     "@kitiumai/logger": "^2.0.0",
     "dotenv": "^16.3.1",

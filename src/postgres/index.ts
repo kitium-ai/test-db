@@ -2,18 +2,18 @@
  * @kitium-ai/test-db - PostgreSQL module
  */
 
+export type { IPostgresTestDB, PostgresConfig } from '../types/index.js';
 export { PostgresTestDB } from './client.js';
 export {
+  countRecords,
   createPostgresTestDB,
   createTable,
-  dropTable,
-  insertData,
-  fetchData,
-  countRecords,
-  updateData,
   deleteData,
+  dropTable,
+  fetchData,
+  insertData,
   resetSequence,
   setupTestDatabase,
   teardownTestDatabase,
+  updateData,
 } from './helpers.js';
-export type { PostgresConfig, IPostgresTestDB } from '../types/index.js';

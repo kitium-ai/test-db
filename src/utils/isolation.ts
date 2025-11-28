@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
+
 import type { PoolClient } from 'pg';
-import { createPostgresTestDB } from '../postgres/helpers.js';
+
+import type { MongoDBTestDB } from '../mongodb/client.js';
 import { createMongoDBTestDB } from '../mongodb/helpers.js';
 import type { PostgresTestDB } from '../postgres/client.js';
-import type { MongoDBTestDB } from '../mongodb/client.js';
+import { createPostgresTestDB } from '../postgres/helpers.js';
 import type { MongoDBConfig, PostgresConfig } from '../types/index.js';
 import { createTestDbConfigBuilder, type TestEnvironmentPreset } from './config.js';
 import { withSpan } from './telemetry.js';
@@ -18,14 +20,14 @@ export interface PostgresIsolationOptions {
 }
 
 export const createPostgresTransactionalHarness = (
-  db: PostgresTestDB,
+  database: PostgresTestDB,
   options?: PostgresIsolationOptions
 ): TransactionalHarness => {
   let client: PoolClient | null = null;
 
   return {
     beforeEach: async () => {
-      client = await db.leaseClient();
+      client = await database.leaseClient();
       await withSpan('postgres.per-test.begin', () => client!.query('BEGIN'));
     },
     afterEach: async () => {
@@ -54,29 +56,32 @@ export interface MongoIsolationOptions {
 
 export const withPerTestMongoDatabase = (
   options: MongoIsolationOptions,
-  lifecycle: { beforeEach: (cb: () => Promise<void>) => void; afterEach: (cb: () => Promise<void>) => void }
+  lifecycle: {
+    beforeEach: (callback: () => Promise<void>) => void;
+    afterEach: (callback: () => Promise<void>) => void;
+  }
 ): { getDb: () => MongoDBTestDB } => {
   const builder = createTestDbConfigBuilder(options?.preset).withMongo(options?.overrides ?? {});
-  let db: MongoDBTestDB;
+  let database_: MongoDBTestDB;
 
   lifecycle.beforeEach(async () => {
     const baseConfig = builder.buildMongo();
     const database = `${options?.prefix ?? 'kitium_test'}_${randomUUID().replace(/-/g, '').slice(0, 8)}`;
-    db = createMongoDBTestDB({ ...baseConfig, database });
-    await withSpan('mongodb.per-test.connect', () => db.connect());
+    database_ = createMongoDBTestDB({ ...baseConfig, database });
+    await withSpan('mongodb.per-test.connect', () => database_.connect());
   });
 
   lifecycle.afterEach(async () => {
-    if (!db) {
+    if (!database_) {
       return;
     }
     await withSpan('mongodb.per-test.teardown', async () => {
-      await db.dropDatabase();
-      await db.disconnect();
+      await database_.dropDatabase();
+      await database_.disconnect();
     });
   });
 
-  return { getDb: () => db };
+  return { getDb: () => database_ };
 };
 
 export interface PostgresHarnessOptions {
@@ -88,50 +93,53 @@ export interface PostgresHarnessOptions {
 }
 
 export const withWorkerPostgresDatabase = (
-  lifecycle: { beforeAll: (cb: () => Promise<void>) => void; afterAll: (cb: () => Promise<void>) => void },
+  lifecycle: {
+    beforeAll: (callback: () => Promise<void>) => void;
+    afterAll: (callback: () => Promise<void>) => void;
+  },
   options?: PostgresHarnessOptions
 ): { getDb: () => PostgresTestDB } => {
   const builder = createTestDbConfigBuilder(options?.preset).withPostgres(options?.overrides ?? {});
   const baseConfig = builder.buildPostgres();
-  const database = options?.databaseName ?? `${randomUUID().replace(/-/g, '').slice(0, 8)}_kitium`; 
-  let db: PostgresTestDB;
+  const database = options?.databaseName ?? `${randomUUID().replace(/-/g, '').slice(0, 8)}_kitium`;
+  let database_: PostgresTestDB;
 
   lifecycle.beforeAll(async () => {
     const adminConfig: PostgresConfig = { ...baseConfig, database: 'postgres' };
-    const adminDb = createPostgresTestDB(adminConfig);
-    await adminDb.connect();
+    const adminDatabase = createPostgresTestDB(adminConfig);
+    await adminDatabase.connect();
     try {
-      await adminDb.createDatabase(database);
+      await adminDatabase.createDatabase(database);
     } finally {
-      await adminDb.disconnect();
+      await adminDatabase.disconnect();
     }
 
-    db = createPostgresTestDB({ ...baseConfig, database });
-    await withSpan('postgres.worker.connect', () => db.connect());
+    database_ = createPostgresTestDB({ ...baseConfig, database });
+    await withSpan('postgres.worker.connect', () => database_.connect());
 
     if (options?.schemas) {
       for (const [table, schema] of Object.entries(options.schemas)) {
-        await db.query(`CREATE TABLE IF NOT EXISTS "${table}" ${schema}`);
+        await database_.query(`CREATE TABLE IF NOT EXISTS "${table}" ${schema}`);
       }
     }
   });
 
   lifecycle.afterAll(async () => {
-    if (!db) {
+    if (!database_) {
       return;
     }
     await withSpan('postgres.worker.teardown', async () => {
-      await db.disconnect();
+      await database_.disconnect();
       const adminConfig: PostgresConfig = { ...baseConfig, database: 'postgres' };
-      const adminDb = createPostgresTestDB(adminConfig);
-      await adminDb.connect();
+      const adminDatabase = createPostgresTestDB(adminConfig);
+      await adminDatabase.connect();
       try {
-        await adminDb.dropDatabase(database);
+        await adminDatabase.dropDatabase(database);
       } finally {
-        await adminDb.disconnect();
+        await adminDatabase.disconnect();
       }
     });
   });
 
-  return { getDb: () => db };
+  return { getDb: () => database_ };
 };

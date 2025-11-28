@@ -18,35 +18,35 @@ export function createPostgresTestDB(config?: Partial<PostgresConfig>): Postgres
  * Helper to create table
  */
 export async function createTable(
-  db: PostgresTestDB,
+  database: PostgresTestDB,
   tableName: string,
   schema: string
 ): Promise<void> {
-  await db.query(`CREATE TABLE IF NOT EXISTS ${tableName} ${schema}`);
+  await database.query(`CREATE TABLE IF NOT EXISTS ${tableName} ${schema}`);
 }
 
 /**
  * Helper to drop table
  */
-export async function dropTable(db: PostgresTestDB, tableName: string): Promise<void> {
-  await db.query(`DROP TABLE IF EXISTS ${tableName} CASCADE`);
+export async function dropTable(database: PostgresTestDB, tableName: string): Promise<void> {
+  await database.query(`DROP TABLE IF EXISTS ${tableName} CASCADE`);
 }
 
 /**
  * Helper to insert data
  */
 export async function insertData(
-  db: PostgresTestDB,
+  database: PostgresTestDB,
   tableName: string,
   data: Record<string, unknown>[]
 ): Promise<void> {
   for (const row of data) {
     const columns = Object.keys(row);
-    const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
+    const placeholders = columns.map((_, index) => `$${index + 1}`).join(', ');
     const values = columns.map((col) => row[col]);
 
     const sql = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders})`;
-    await db.query(sql, values);
+    await database.query(sql, values);
   }
 }
 
@@ -54,7 +54,7 @@ export async function insertData(
  * Helper to fetch data
  */
 export async function fetchData(
-  db: PostgresTestDB,
+  database: PostgresTestDB,
   tableName: string,
   where?: Record<string, unknown>
 ): Promise<unknown[]> {
@@ -63,15 +63,15 @@ export async function fetchData(
 
   if (where) {
     const conditions = Object.keys(where)
-      .map((key, i) => {
+      .map((key, index) => {
         values.push(where[key]);
-        return `${key} = $${i + 1}`;
+        return `${key} = $${index + 1}`;
       })
       .join(' AND ');
     sql += ` WHERE ${conditions}`;
   }
 
-  const result = await db.query(sql, values);
+  const result = await database.query(sql, values);
   return result.rows;
 }
 
@@ -79,7 +79,7 @@ export async function fetchData(
  * Helper to count records in table
  */
 export async function countRecords(
-  db: PostgresTestDB,
+  database: PostgresTestDB,
   tableName: string,
   where?: Record<string, unknown>
 ): Promise<number> {
@@ -88,15 +88,15 @@ export async function countRecords(
 
   if (where) {
     const conditions = Object.keys(where)
-      .map((key, i) => {
+      .map((key, index) => {
         values.push(where[key]);
-        return `${key} = $${i + 1}`;
+        return `${key} = $${index + 1}`;
       })
       .join(' AND ');
     sql += ` WHERE ${conditions}`;
   }
 
-  const result = await db.query(sql, values);
+  const result = await database.query(sql, values);
   return (result.rows[0] as { count: number }).count;
 }
 
@@ -104,54 +104,54 @@ export async function countRecords(
  * Helper to update data
  */
 export async function updateData(
-  db: PostgresTestDB,
+  database: PostgresTestDB,
   tableName: string,
   updates: Record<string, unknown>,
   where: Record<string, unknown>
 ): Promise<void> {
   const updateColumns = Object.keys(updates)
-    .map((key, i) => `${key} = $${i + 1}`)
+    .map((key, index) => `${key} = $${index + 1}`)
     .join(', ');
 
   const whereConditions = Object.keys(where)
-    .map((key, i) => `${key} = $${Object.keys(updates).length + i + 1}`)
+    .map((key, index) => `${key} = $${Object.keys(updates).length + index + 1}`)
     .join(' AND ');
 
   const values = [...Object.values(updates), ...Object.values(where)];
 
   const sql = `UPDATE ${tableName} SET ${updateColumns} WHERE ${whereConditions}`;
-  await db.query(sql, values);
+  await database.query(sql, values);
 }
 
 /**
  * Helper to delete data
  */
 export async function deleteData(
-  db: PostgresTestDB,
+  database: PostgresTestDB,
   tableName: string,
   where: Record<string, unknown>
 ): Promise<void> {
   const conditions = Object.keys(where)
-    .map((key, i) => {
-      return `${key} = $${i + 1}`;
+    .map((key, index) => {
+      return `${key} = $${index + 1}`;
     })
     .join(' AND ');
 
   const values = Object.values(where);
   const sql = `DELETE FROM ${tableName} WHERE ${conditions}`;
-  await db.query(sql, values);
+  await database.query(sql, values);
 }
 
 /**
  * Helper to reset auto-increment sequence
  */
 export async function resetSequence(
-  db: PostgresTestDB,
+  database: PostgresTestDB,
   tableName: string,
   columnName: string = 'id'
 ): Promise<void> {
   const sequenceName = `${tableName}_${columnName}_seq`;
-  await db.query(`ALTER SEQUENCE "${sequenceName}" RESTART WITH 1`);
+  await database.query(`ALTER SEQUENCE "${sequenceName}" RESTART WITH 1`);
 }
 
 /**
@@ -161,30 +161,33 @@ export async function setupTestDatabase(
   config: Partial<PostgresConfig>,
   schemas: Record<string, string>
 ): Promise<PostgresTestDB> {
-  const db = createPostgresTestDB(config);
-  await db.connect();
+  const database = createPostgresTestDB(config);
+  await database.connect();
 
   try {
     for (const [tableName, schema] of Object.entries(schemas)) {
-      await createTable(db, tableName, schema);
+      await createTable(database, tableName, schema);
     }
   } catch (error) {
-    await db.disconnect();
+    await database.disconnect();
     throw error;
   }
 
-  return db;
+  return database;
 }
 
 /**
  * Helper to teardown test database
  */
-export async function teardownTestDatabase(db: PostgresTestDB, tables: string[]): Promise<void> {
+export async function teardownTestDatabase(
+  database: PostgresTestDB,
+  tables: string[]
+): Promise<void> {
   try {
     for (const table of tables) {
-      await dropTable(db, table);
+      await dropTable(database, table);
     }
   } finally {
-    await db.disconnect();
+    await database.disconnect();
   }
 }

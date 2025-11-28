@@ -2,11 +2,12 @@
  * @kitium-ai/test-db - PostgreSQL Test Client
  */
 
-import { Pool, Client, PoolClient, QueryResult } from 'pg';
 import { measure } from '@kitiumai/scripts/utils';
-import { PostgresConfig, IPostgresTestDB, ConnectionState } from '../types/index.js';
+import { Client, Pool, PoolClient, QueryResult } from 'pg';
+
+import { ConnectionState, IPostgresTestDB, PostgresConfig } from '../types/index.js';
+import { sanitizePostgresConfig, validatePostgresConfig } from '../utils/config.js';
 import { createLogger, ILogger } from '../utils/logging.js';
-import { validatePostgresConfig, sanitizePostgresConfig } from '../utils/config.js';
 import { withSpan } from '../utils/telemetry.js';
 
 /**
@@ -70,9 +71,9 @@ export class PostgresTestDB implements IPostgresTestDB {
       this.logger.info('Connected to PostgreSQL database');
     } catch (error) {
       this.state = 'disconnected';
-      const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Failed to connect to PostgreSQL', undefined, err);
-      throw err;
+      const error_ = error instanceof Error ? error : new Error(String(error));
+      this.logger.error('Failed to connect to PostgreSQL', undefined, error_);
+      throw error_;
     }
   }
 
@@ -98,9 +99,9 @@ export class PostgresTestDB implements IPostgresTestDB {
       this.state = 'disconnected';
       this.logger.info('Disconnected from PostgreSQL database');
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Error disconnecting from PostgreSQL', undefined, err);
-      throw err;
+      const error_ = error instanceof Error ? error : new Error(String(error));
+      this.logger.error('Error disconnecting from PostgreSQL', undefined, error_);
+      throw error_;
     }
   }
 
@@ -114,19 +115,21 @@ export class PostgresTestDB implements IPostgresTestDB {
   /**
    * Execute a query
    */
-  public async query(sql: string, params?: unknown[]): Promise<QueryResult> {
+  public async query(sql: string, parameters?: unknown[]): Promise<QueryResult> {
     if (!this.isConnected() || !this.pool) {
       throw new Error('Database is not connected');
     }
 
     try {
-      this.logger.debug('Executing query', { sql, params: params?.length ?? 0 });
-      const result = await withSpan('postgres.query', () => this.pool!.query(sql, params), { sql });
+      this.logger.debug('Executing query', { sql, params: parameters?.length ?? 0 });
+      const result = await withSpan('postgres.query', () => this.pool!.query(sql, parameters), {
+        sql,
+      });
       return result;
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Query execution failed', { sql }, err);
-      throw err;
+      const error_ = error instanceof Error ? error : new Error(String(error));
+      this.logger.error('Query execution failed', { sql }, error_);
+      throw error_;
     }
   }
 
@@ -143,8 +146,8 @@ export class PostgresTestDB implements IPostgresTestDB {
   /**
    * Execute query that returns first result
    */
-  public async execute(sql: string, params?: unknown[]): Promise<unknown> {
-    const result = await this.query(sql, params);
+  public async execute(sql: string, parameters?: unknown[]): Promise<unknown> {
+    const result = await this.query(sql, parameters);
     return result.rows[0] ?? null;
   }
 
@@ -170,9 +173,9 @@ export class PostgresTestDB implements IPostgresTestDB {
       });
     } catch (error) {
       await client.query('ROLLBACK');
-      const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Transaction rolled back', undefined, err);
-      throw err;
+      const error_ = error instanceof Error ? error : new Error(String(error));
+      this.logger.error('Transaction rolled back', undefined, error_);
+      throw error_;
     } finally {
       client.release();
     }
@@ -218,18 +221,18 @@ export class PostgresTestDB implements IPostgresTestDB {
       await withSpan('postgres.truncate', () => this.query(sql), { tables });
       this.logger.info('Truncated tables', { tables });
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Failed to truncate tables', { tables }, err);
-      throw err;
+      const error_ = error instanceof Error ? error : new Error(String(error));
+      this.logger.error('Failed to truncate tables', { tables }, error_);
+      throw error_;
     }
   }
 
   /**
    * Create a new database
    */
-  public async createDatabase(dbName: string): Promise<void> {
-    const validDbName = /^[a-zA-Z0-9_-]+$/.test(dbName);
-    if (!validDbName) {
+  public async createDatabase(databaseName: string): Promise<void> {
+    const validDatabaseName = /^[a-zA-Z0-9_-]+$/.test(databaseName);
+    if (!validDatabaseName) {
       throw new Error('Invalid database name');
     }
 
@@ -249,13 +252,13 @@ export class PostgresTestDB implements IPostgresTestDB {
     try {
       await withSpan('postgres.database.create', async () => {
         await client.connect();
-        await client.query(`CREATE DATABASE "${dbName}"`);
+        await client.query(`CREATE DATABASE "${databaseName}"`);
       });
-      this.logger.info('Created database', { database: dbName });
+      this.logger.info('Created database', { database: databaseName });
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Failed to create database', { database: dbName }, err);
-      throw err;
+      const error_ = error instanceof Error ? error : new Error(String(error));
+      this.logger.error('Failed to create database', { database: databaseName }, error_);
+      throw error_;
     } finally {
       await client.end();
     }
@@ -264,9 +267,9 @@ export class PostgresTestDB implements IPostgresTestDB {
   /**
    * Drop a database
    */
-  public async dropDatabase(dbName: string): Promise<void> {
-    const validDbName = /^[a-zA-Z0-9_-]+$/.test(dbName);
-    if (!validDbName) {
+  public async dropDatabase(databaseName: string): Promise<void> {
+    const validDatabaseName = /^[a-zA-Z0-9_-]+$/.test(databaseName);
+    if (!validDatabaseName) {
       throw new Error('Invalid database name');
     }
 
@@ -294,16 +297,16 @@ export class PostgresTestDB implements IPostgresTestDB {
         WHERE pg_stat_activity.datname = $1
         AND pid <> pg_backend_pid()
       `,
-          [dbName]
+          [databaseName]
         );
         // Drop the database
-        await client.query(`DROP DATABASE IF EXISTS "${dbName}"`);
+        await client.query(`DROP DATABASE IF EXISTS "${databaseName}"`);
       });
-      this.logger.info('Dropped database', { database: dbName });
+      this.logger.info('Dropped database', { database: databaseName });
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Failed to drop database', { database: dbName }, err);
-      throw err;
+      const error_ = error instanceof Error ? error : new Error(String(error));
+      this.logger.error('Failed to drop database', { database: databaseName }, error_);
+      throw error_;
     } finally {
       await client.end();
     }
@@ -334,7 +337,7 @@ export class PostgresTestDB implements IPostgresTestDB {
 
           for (const row of rows) {
             const columns = Object.keys(row as Record<string, unknown>);
-            const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
+            const placeholders = columns.map((_, index) => `$${index + 1}`).join(', ');
             const values = columns.map((col) => (row as Record<string, unknown>)[col]);
 
             const sql = `INSERT INTO "${table}" (${columns.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders})`;
@@ -345,11 +348,11 @@ export class PostgresTestDB implements IPostgresTestDB {
 
       this.logger.info('Database seeded successfully');
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Failed to seed database', undefined, err);
-      throw err;
+      const error_ = error instanceof Error ? error : new Error(String(error));
+      this.logger.error('Failed to seed database', undefined, error_);
+      throw error_;
     }
   }
 }
 
-export type { PostgresConfig, IPostgresTestDB };
+export type { IPostgresTestDB, PostgresConfig };

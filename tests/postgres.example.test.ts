@@ -6,18 +6,18 @@
  */
 
 import {
-  createPostgresTestDB,
-  insertData,
-  fetchData,
   countRecords,
+  createPostgresTestDB,
+  fetchData,
+  insertData,
 } from '../src/postgres/index.js';
 import { PostgresConfig } from '../src/types/index.js';
 
 describe('PostgreSQL Test Database', () => {
-  let dbConfig: PostgresConfig;
+  let databaseConfig: PostgresConfig;
 
   beforeAll(() => {
-    dbConfig = {
+    databaseConfig = {
       host: process.env.POSTGRES_HOST || 'localhost',
       port: parseInt(process.env.POSTGRES_PORT || '5432', 10),
       username: process.env.POSTGRES_USER || 'postgres',
@@ -28,59 +28,59 @@ describe('PostgreSQL Test Database', () => {
 
   describe('Connection Management', () => {
     it('should connect to PostgreSQL database', async () => {
-      const db = createPostgresTestDB(dbConfig);
+      const database = createPostgresTestDB(databaseConfig);
 
       try {
-        await db.connect();
-        expect(db.isConnected()).toBe(true);
+        await database.connect();
+        expect(database.isConnected()).toBe(true);
       } finally {
-        await db.disconnect();
+        await database.disconnect();
       }
     });
 
     it('should handle multiple connections gracefully', async () => {
-      const db = createPostgresTestDB(dbConfig);
+      const database = createPostgresTestDB(databaseConfig);
 
       try {
-        await db.connect();
-        await db.connect(); // Should not fail
+        await database.connect();
+        await database.connect(); // Should not fail
 
-        expect(db.isConnected()).toBe(true);
+        expect(database.isConnected()).toBe(true);
       } finally {
-        await db.disconnect();
+        await database.disconnect();
       }
     });
 
     it('should disconnect successfully', async () => {
-      const db = createPostgresTestDB(dbConfig);
+      const database = createPostgresTestDB(databaseConfig);
 
-      await db.connect();
-      expect(db.isConnected()).toBe(true);
+      await database.connect();
+      expect(database.isConnected()).toBe(true);
 
-      await db.disconnect();
-      expect(db.isConnected()).toBe(false);
+      await database.disconnect();
+      expect(database.isConnected()).toBe(false);
     });
   });
 
   describe('Query Execution', () => {
     it('should execute simple queries', async () => {
-      const db = createPostgresTestDB(dbConfig);
+      const database = createPostgresTestDB(databaseConfig);
 
       try {
-        await db.connect();
-        const result = await db.query('SELECT 1 as value');
+        await database.connect();
+        const result = await database.query('SELECT 1 as value');
 
         expect(result.rows).toHaveLength(1);
         expect(result.rows[0]).toEqual({ value: 1 });
       } finally {
-        await db.disconnect();
+        await database.disconnect();
       }
     });
 
     it('should throw error when not connected', async () => {
-      const db = createPostgresTestDB(dbConfig);
+      const database = createPostgresTestDB(databaseConfig);
 
-      await expect(db.query('SELECT 1')).rejects.toThrow('Database is not connected');
+      await expect(database.query('SELECT 1')).rejects.toThrow('Database is not connected');
     });
   });
 
@@ -88,12 +88,12 @@ describe('PostgreSQL Test Database', () => {
     const tableName = 'test_users';
 
     beforeEach(async () => {
-      const db = createPostgresTestDB(dbConfig);
+      const database = createPostgresTestDB(databaseConfig);
 
       try {
-        await db.connect();
+        await database.connect();
         // Create test table
-        await db.query(`
+        await database.query(`
           CREATE TABLE IF NOT EXISTS ${tableName} (
             id SERIAL PRIMARY KEY,
             name VARCHAR(255) NOT NULL,
@@ -103,49 +103,49 @@ describe('PostgreSQL Test Database', () => {
           )
         `);
       } finally {
-        await db.disconnect();
+        await database.disconnect();
       }
     });
 
     afterEach(async () => {
-      const db = createPostgresTestDB(dbConfig);
+      const database = createPostgresTestDB(databaseConfig);
 
       try {
-        await db.connect();
-        await db.query(`DROP TABLE IF EXISTS ${tableName} CASCADE`);
+        await database.connect();
+        await database.query(`DROP TABLE IF EXISTS ${tableName} CASCADE`);
       } finally {
-        await db.disconnect();
+        await database.disconnect();
       }
     });
 
     it('should insert data', async () => {
-      const db = createPostgresTestDB(dbConfig);
+      const database = createPostgresTestDB(databaseConfig);
 
       try {
-        await db.connect();
+        await database.connect();
         const testData = [
           { name: 'John Doe', email: 'john@example.com', age: 30 },
           { name: 'Jane Smith', email: 'jane@example.com', age: 28 },
         ];
 
-        await insertData(db, tableName, testData);
+        await insertData(database, tableName, testData);
 
-        const count = await countRecords(db, tableName);
+        const count = await countRecords(database, tableName);
         expect(count).toBe(2);
       } finally {
-        await db.disconnect();
+        await database.disconnect();
       }
     });
 
     it('should fetch data', async () => {
-      const db = createPostgresTestDB(dbConfig);
+      const database = createPostgresTestDB(databaseConfig);
 
       try {
-        await db.connect();
+        await database.connect();
         const testData = [{ name: 'John Doe', email: 'john@example.com', age: 30 }];
 
-        await insertData(db, tableName, testData);
-        const results = await fetchData(db, tableName);
+        await insertData(database, tableName, testData);
+        const results = await fetchData(database, tableName);
 
         expect(results).toHaveLength(1);
         expect(results[0]).toMatchObject({
@@ -154,27 +154,27 @@ describe('PostgreSQL Test Database', () => {
           age: 30,
         });
       } finally {
-        await db.disconnect();
+        await database.disconnect();
       }
     });
 
     it('should count records with filter', async () => {
-      const db = createPostgresTestDB(dbConfig);
+      const database = createPostgresTestDB(databaseConfig);
 
       try {
-        await db.connect();
+        await database.connect();
         const testData = [
           { name: 'John Doe', email: 'john@example.com', age: 30 },
           { name: 'Jane Smith', email: 'jane@example.com', age: 28 },
           { name: 'Bob Wilson', email: 'bob@example.com', age: 35 },
         ];
 
-        await insertData(db, tableName, testData);
+        await insertData(database, tableName, testData);
 
-        const count = await countRecords(db, tableName, { age: 30 });
+        const count = await countRecords(database, tableName, { age: 30 });
         expect(count).toBeGreaterThanOrEqual(1);
       } finally {
-        await db.disconnect();
+        await database.disconnect();
       }
     });
   });
@@ -183,11 +183,11 @@ describe('PostgreSQL Test Database', () => {
     const tableName = 'test_transactions';
 
     beforeEach(async () => {
-      const db = createPostgresTestDB(dbConfig);
+      const database = createPostgresTestDB(databaseConfig);
 
       try {
-        await db.connect();
-        await db.query(`
+        await database.connect();
+        await database.query(`
           CREATE TABLE IF NOT EXISTS ${tableName} (
             id SERIAL PRIMARY KEY,
             amount DECIMAL(10, 2) NOT NULL,
@@ -195,38 +195,38 @@ describe('PostgreSQL Test Database', () => {
           )
         `);
       } finally {
-        await db.disconnect();
+        await database.disconnect();
       }
     });
 
     afterEach(async () => {
-      const db = createPostgresTestDB(dbConfig);
+      const database = createPostgresTestDB(databaseConfig);
 
       try {
-        await db.connect();
-        await db.query(`DROP TABLE IF EXISTS ${tableName} CASCADE`);
+        await database.connect();
+        await database.query(`DROP TABLE IF EXISTS ${tableName} CASCADE`);
       } finally {
-        await db.disconnect();
+        await database.disconnect();
       }
     });
 
     it('should handle transactions correctly', async () => {
-      const db = createPostgresTestDB(dbConfig);
+      const database = createPostgresTestDB(databaseConfig);
 
       try {
-        await db.connect();
+        await database.connect();
 
-        await db.transaction(async (client) => {
+        await database.transaction(async (client) => {
           await client.query(`INSERT INTO ${tableName} (amount, status) VALUES ($1, $2)`, [
             100.0,
             'pending',
           ]);
         });
 
-        const result = await db.query(`SELECT * FROM ${tableName}`);
+        const result = await database.query(`SELECT * FROM ${tableName}`);
         expect(result.rows).toHaveLength(1);
       } finally {
-        await db.disconnect();
+        await database.disconnect();
       }
     });
   });

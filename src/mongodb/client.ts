@@ -2,11 +2,12 @@
  * @kitium-ai/test-db - MongoDB Test Client
  */
 
-import { MongoClient, Db, ClientSession } from 'mongodb';
 import { measure } from '@kitiumai/scripts/utils';
-import { MongoDBConfig, IMongoDBTestDB, ConnectionState } from '../types/index.js';
+import { ClientSession, Db, MongoClient } from 'mongodb';
+
+import { ConnectionState, IMongoDBTestDB, MongoDBConfig } from '../types/index.js';
+import { sanitizeMongoDBConfig, validateMongoDBConfig } from '../utils/config.js';
 import { createLogger, ILogger } from '../utils/logging.js';
-import { validateMongoDBConfig, sanitizeMongoDBConfig } from '../utils/config.js';
 import { withSpan } from '../utils/telemetry.js';
 
 /**
@@ -69,9 +70,9 @@ export class MongoDBTestDB implements IMongoDBTestDB {
       this.logger.info('Connected to MongoDB database');
     } catch (error) {
       this.state = 'disconnected';
-      const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Failed to connect to MongoDB', undefined, err);
-      throw err;
+      const error_ = error instanceof Error ? error : new Error(String(error));
+      this.logger.error('Failed to connect to MongoDB', undefined, error_);
+      throw error_;
     }
   }
 
@@ -98,9 +99,9 @@ export class MongoDBTestDB implements IMongoDBTestDB {
       this.state = 'disconnected';
       this.logger.info('Disconnected from MongoDB database');
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Error disconnecting from MongoDB', undefined, err);
-      throw err;
+      const error_ = error instanceof Error ? error : new Error(String(error));
+      this.logger.error('Error disconnecting from MongoDB', undefined, error_);
+      throw error_;
     }
   }
 
@@ -125,7 +126,7 @@ export class MongoDBTestDB implements IMongoDBTestDB {
   /**
    * Execute a query (returns first document)
    */
-  public async execute(query: string, _params?: unknown[]): Promise<unknown> {
+  public async execute(query: string, _parameters?: unknown[]): Promise<unknown> {
     if (!this.isConnected() || !this.db) {
       throw new Error('Database is not connected');
     }
@@ -134,14 +135,18 @@ export class MongoDBTestDB implements IMongoDBTestDB {
       // Parse simple query format for basic operations
       // For complex queries, use collection() method directly
       this.logger.debug('Executing query', { query });
-      const result = await withSpan('mongodb.query', () => this.db!.collection('_query').findOne({ query }), {
-        query,
-      });
+      const result = await withSpan(
+        'mongodb.query',
+        () => this.db!.collection('_query').findOne({ query }),
+        {
+          query,
+        }
+      );
       return result ?? null;
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Query execution failed', { query }, err);
-      throw err;
+      const error_ = error instanceof Error ? error : new Error(String(error));
+      this.logger.error('Query execution failed', { query }, error_);
+      throw error_;
     }
   }
 
@@ -164,9 +169,9 @@ export class MongoDBTestDB implements IMongoDBTestDB {
         this.logger.debug('Transaction committed');
       });
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Transaction failed', undefined, err);
-      throw err;
+      const error_ = error instanceof Error ? error : new Error(String(error));
+      this.logger.error('Transaction failed', undefined, error_);
+      throw error_;
     } finally {
       await session.endSession();
     }
@@ -181,14 +186,16 @@ export class MongoDBTestDB implements IMongoDBTestDB {
     }
 
     try {
-      await withSpan('mongodb.collection.drop', () => this.db!.collection(name).drop(), { collection: name });
+      await withSpan('mongodb.collection.drop', () => this.db!.collection(name).drop(), {
+        collection: name,
+      });
       this.logger.info('Dropped collection', { collection: name });
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
+      const error_ = error instanceof Error ? error : new Error(String(error));
       // Ignore "namespace not found" error
-      if (!err.message.includes('ns not found')) {
-        this.logger.error('Failed to drop collection', { collection: name }, err);
-        throw err;
+      if (!error_.message.includes('ns not found')) {
+        this.logger.error('Failed to drop collection', { collection: name }, error_);
+        throw error_;
       }
     }
   }
@@ -205,9 +212,9 @@ export class MongoDBTestDB implements IMongoDBTestDB {
       await withSpan('mongodb.database.drop', () => this.db!.dropDatabase());
       this.logger.info('Dropped database');
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Failed to drop database', undefined, err);
-      throw err;
+      const error_ = error instanceof Error ? error : new Error(String(error));
+      this.logger.error('Failed to drop database', undefined, error_);
+      throw error_;
     }
   }
 
@@ -234,7 +241,7 @@ export class MongoDBTestDB implements IMongoDBTestDB {
             continue;
           }
 
-          if (documents.length > 0) {
+          if (documents.length > 0 && this.db) {
             const collection = this.db.collection(collectionName);
             await collection.insertMany(documents as Record<string, unknown>[]);
           }
@@ -243,9 +250,9 @@ export class MongoDBTestDB implements IMongoDBTestDB {
 
       this.logger.info('Database seeded successfully');
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Failed to seed database', undefined, err);
-      throw err;
+      const error_ = error instanceof Error ? error : new Error(String(error));
+      this.logger.error('Failed to seed database', undefined, error_);
+      throw error_;
     }
   }
 
@@ -260,4 +267,4 @@ export class MongoDBTestDB implements IMongoDBTestDB {
   }
 }
 
-export type { MongoDBConfig, IMongoDBTestDB };
+export type { IMongoDBTestDB, MongoDBConfig };

@@ -2,10 +2,11 @@
  * @kitium-ai/test-db - Configuration utilities
  */
 
-import { getConfigManager, deepMerge, sanitizeForLogging } from '@kitiumai/test-core';
-import { log } from '@kitiumai/scripts/utils';
 import packageTemplate from '@kitiumai/config/packageBase.cjs';
-import { PostgresConfig, MongoDBConfig } from '../types/index.js';
+import { log } from '@kitiumai/scripts/utils';
+import { deepMerge, getConfigManager, sanitizeForLogging } from '@kitiumai/test-core';
+
+import { MongoDBConfig, PostgresConfig } from '../types/index.js';
 import { createLogger } from './logging.js';
 
 const configManager = getConfigManager();
@@ -21,18 +22,21 @@ const baseCiHost = (): string => (configManager.get('ci') ? 'postgres' : 'localh
  * Get PostgreSQL configuration from environment variables
  */
 export function getPostgresConfig(overrides?: Partial<PostgresConfig>): PostgresConfig {
-  const env = process.env;
+  const environment = process.env;
   const sharedTimeout = configManager.get('timeout') ?? 5000;
   const defaults: PostgresConfig = {
-    host: env['POSTGRES_HOST'] || baseCiHost(),
-    port: parseInt(env['POSTGRES_PORT'] || '5432', 10),
-    username: env['POSTGRES_USER'] || 'postgres',
-    password: env['POSTGRES_PASSWORD'] || 'postgres',
-    database: env['POSTGRES_DB'] || 'test_db',
-    ssl: env['POSTGRES_SSL'] === 'true',
-    connectionTimeout: parseInt(env['POSTGRES_CONNECTION_TIMEOUT'] || String(sharedTimeout), 10),
-    idleTimeout: parseInt(env['POSTGRES_IDLE_TIMEOUT'] || '30000', 10),
-    maxConnections: parseInt(env['POSTGRES_MAX_CONNECTIONS'] || '20', 10),
+    host: environment['POSTGRES_HOST'] || baseCiHost(),
+    port: parseInt(environment['POSTGRES_PORT'] || '5432', 10),
+    username: environment['POSTGRES_USER'] || 'postgres',
+    password: environment['POSTGRES_PASSWORD'] || 'postgres',
+    database: environment['POSTGRES_DB'] || 'test_db',
+    ssl: environment['POSTGRES_SSL'] === 'true',
+    connectionTimeout: parseInt(
+      environment['POSTGRES_CONNECTION_TIMEOUT'] || String(sharedTimeout),
+      10
+    ),
+    idleTimeout: parseInt(environment['POSTGRES_IDLE_TIMEOUT'] || '30000', 10),
+    maxConnections: parseInt(environment['POSTGRES_MAX_CONNECTIONS'] || '20', 10),
   };
 
   const merged = deepMerge(defaults, overrides ?? {});
@@ -46,16 +50,16 @@ export function getPostgresConfig(overrides?: Partial<PostgresConfig>): Postgres
  * Get MongoDB configuration from environment variables
  */
 export function getMongoDBConfig(overrides?: Partial<MongoDBConfig>): MongoDBConfig {
-  const env = process.env;
-  const defaultUri = `mongodb://${env['MONGO_USER'] || 'root'}:${env['MONGO_PASSWORD'] || 'root'}@${
-    env['MONGO_HOST'] || baseCiHost()
-  }:${env['MONGO_PORT'] || 27017}`;
+  const environment = process.env;
+  const defaultUri = `mongodb://${environment['MONGO_USER'] || 'root'}:${environment['MONGO_PASSWORD'] || 'root'}@${
+    environment['MONGO_HOST'] || baseCiHost()
+  }:${environment['MONGO_PORT'] || 27017}`;
 
   const defaults: MongoDBConfig = {
-    uri: env['MONGO_URI'] || defaultUri,
-    database: env['MONGO_DB'] || 'test_db',
-    connectionTimeout: parseInt(env['MONGO_CONNECTION_TIMEOUT'] || '5000', 10),
-    serverSelectionTimeout: parseInt(env['MONGO_SERVER_SELECTION_TIMEOUT'] || '5000', 10),
+    uri: environment['MONGO_URI'] || defaultUri,
+    database: environment['MONGO_DB'] || 'test_db',
+    connectionTimeout: parseInt(environment['MONGO_CONNECTION_TIMEOUT'] || '5000', 10),
+    serverSelectionTimeout: parseInt(environment['MONGO_SERVER_SELECTION_TIMEOUT'] || '5000', 10),
   };
 
   const merged = deepMerge(defaults, overrides ?? {});

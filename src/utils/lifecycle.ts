@@ -1,12 +1,19 @@
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
 import { measure } from '@kitiumai/scripts/utils';
 import { getTestLogger } from '@kitiumai/test-core';
-import type { PostgresConfig, MongoDBConfig } from '../types/index.js';
-import { createPostgresTestDB } from '../postgres/helpers.js';
+
 import { createMongoDBTestDB } from '../mongodb/helpers.js';
-import type { PostgresTestDB } from '../postgres/client.js';
 import type { MongoDBTestDB } from '../mongodb/client.js';
-import { createTestDbConfigBuilder, type TestEnvironmentPreset } from './config.js';
+import type { PostgresTestDB } from '../postgres/client.js';
+
+import { createPostgresTestDB } from '../postgres/helpers.js';
+
+import type { MongoDBConfig, PostgresConfig } from '../types/index.js';
+
+import {
+  createTestDbConfigBuilder as createTestDatabaseConfigBuilder,
+  type TestEnvironmentPreset,
+} from './config.js';
 
 const logger = getTestLogger();
 
@@ -30,83 +37,90 @@ export interface TemporaryMongoOptions {
 
 export async function withTemporaryPostgresDatabase(
   options: TemporaryPostgresOptions,
-  handler: (db: PostgresTestDB, config: PostgresConfig) => Promise<void>
+  handler: (database: PostgresTestDB, config: PostgresConfig) => Promise<void>
 ): Promise<void> {
-  const builder = createTestDbConfigBuilder(options?.preset).withPostgres(options?.overrides ?? {});
+  const builder = createTestDatabaseConfigBuilder(options?.preset).withPostgres(
+    options?.overrides ?? {}
+  );
   const baseConfig = builder.buildPostgres();
-  const tempName = options?.databaseName ?? uniqueName(options?.prefix ?? 'kitium_pg_test');
+  const temporaryName = options?.databaseName ?? uniqueName(options?.prefix ?? 'kitium_pg_test');
   const adminConfig: PostgresConfig = { ...baseConfig, database: 'postgres' };
-  const testConfig: PostgresConfig = { ...baseConfig, database: tempName };
+  const testConfig: PostgresConfig = { ...baseConfig, database: temporaryName };
 
-  await createDatabase(adminConfig, tempName);
+  await createDatabase(adminConfig, temporaryName);
 
-  const testDb = createPostgresTestDB(testConfig);
-  logger.info('Temporary PostgreSQL database created', { database: tempName });
+  const testDatabase = createPostgresTestDB(testConfig);
+  logger.info('Temporary PostgreSQL database created', { database: temporaryName });
 
   try {
-    await testDb.connect();
-    await ensureSchemas(testDb, options?.schemas);
+    await testDatabase.connect();
+    await ensureSchemas(testDatabase, options?.schemas);
 
-    await measure(`withTemporaryPostgresDatabase:${tempName}`, async () => {
-      await handler(testDb, testConfig);
+    await measure(`withTemporaryPostgresDatabase:${temporaryName}`, async () => {
+      await handler(testDatabase, testConfig);
     });
   } finally {
-    await testDb.disconnect();
-    await dropDatabase(adminConfig, tempName);
-    logger.info('Temporary PostgreSQL database dropped', { database: tempName });
+    await testDatabase.disconnect();
+    await dropDatabase(adminConfig, temporaryName);
+    logger.info('Temporary PostgreSQL database dropped', { database: temporaryName });
   }
 }
 
 export async function withTemporaryMongoDatabase(
   options: TemporaryMongoOptions,
-  handler: (db: MongoDBTestDB, config: MongoDBConfig) => Promise<void>
+  handler: (database: MongoDBTestDB, config: MongoDBConfig) => Promise<void>
 ): Promise<void> {
-  const builder = createTestDbConfigBuilder(options?.preset).withMongo(options?.overrides ?? {});
+  const builder = createTestDatabaseConfigBuilder(options?.preset).withMongo(
+    options?.overrides ?? {}
+  );
   const baseConfig = builder.buildMongo();
-  const tempName = options?.databaseName ?? uniqueName(options?.prefix ?? 'kitium_mongo_test');
-  const testConfig: MongoDBConfig = { ...baseConfig, database: tempName };
-  const testDb = createMongoDBTestDB(testConfig);
+  const temporaryName = options?.databaseName ?? uniqueName(options?.prefix ?? 'kitium_mongo_test');
+  const testConfig: MongoDBConfig = { ...baseConfig, database: temporaryName };
+  const testDatabase = createMongoDBTestDB(testConfig);
 
-  logger.info('Temporary MongoDB database created', { database: tempName });
-  await testDb.connect();
+  logger.info('Temporary MongoDB database created', { database: temporaryName });
+  await testDatabase.connect();
 
   try {
-    await measure(`withTemporaryMongoDatabase:${tempName}`, async () => {
-      await handler(testDb, testConfig);
+    await measure(`withTemporaryMongoDatabase:${temporaryName}`, async () => {
+      await handler(testDatabase, testConfig);
     });
   } finally {
-    await testDb.dropDatabase();
-    await testDb.disconnect();
-    logger.info('Temporary MongoDB database dropped', { database: tempName });
+    await testDatabase.dropDatabase();
+    await testDatabase.disconnect();
+    logger.info('Temporary MongoDB database dropped', { database: temporaryName });
   }
 }
 
-async function createDatabase(config: PostgresConfig, dbName: string): Promise<void> {
-  const adminDb = createPostgresTestDB(config);
-  await adminDb.connect();
+async function createDatabase(config: PostgresConfig, databaseName: string): Promise<void> {
+  const adminDatabase = createPostgresTestDB(config);
+  await adminDatabase.connect();
   try {
-    await adminDb.createDatabase(dbName);
+    await adminDatabase.createDatabase(databaseName);
   } finally {
-    await adminDb.disconnect();
+    await adminDatabase.disconnect();
   }
 }
 
-async function dropDatabase(config: PostgresConfig, dbName: string): Promise<void> {
-  const adminDb = createPostgresTestDB(config);
-  await adminDb.connect();
+async function dropDatabase(config: PostgresConfig, databaseName: string): Promise<void> {
+  const adminDatabase = createPostgresTestDB(config);
+  await adminDatabase.connect();
   try {
-    await adminDb.dropDatabase(dbName);
+    await adminDatabase.dropDatabase(databaseName);
   } finally {
-    await adminDb.disconnect();
+    await adminDatabase.disconnect();
   }
 }
 
-async function ensureSchemas(db: PostgresTestDB, schemas?: Record<string, string>): Promise<void> {
+async function ensureSchemas(
+  database: PostgresTestDB,
+  schemas?: Record<string, string>
+): Promise<void> {
   if (!schemas) {
     return;
   }
 
   for (const [table, schema] of Object.entries(schemas)) {
-    await db.query(`CREATE TABLE IF NOT EXISTS "${table}" ${schema}`);
+    await database.query(`CREATE TABLE IF NOT EXISTS "${table}" ${schema}`);
   }
 }

@@ -1,7 +1,7 @@
 import {
-  createPostgresPreset,
   createMongoPreset,
-  createTestDbConfigBuilder,
+  createPostgresPreset,
+  createTestDbConfigBuilder as createTestDatabaseConfigBuilder,
 } from '../src/utils/config.js';
 
 describe('Test DB config builder', () => {
@@ -28,13 +28,15 @@ describe('Test DB config builder', () => {
   });
 
   it('builder merges overrides for postgres', () => {
-    const builder = createTestDbConfigBuilder('local').withPostgres({ database: 'custom_db' });
+    const builder = createTestDatabaseConfigBuilder('local').withPostgres({
+      database: 'custom_db',
+    });
     const config = builder.buildPostgres();
     expect(config.database).toBe('custom_db');
   });
 
   it('builder merges overrides for mongo', () => {
-    const builder = createTestDbConfigBuilder('ci').withMongo({ database: 'temp_db' });
+    const builder = createTestDatabaseConfigBuilder('ci').withMongo({ database: 'temp_db' });
     const config = builder.buildMongo();
     expect(config.database).toBe('temp_db');
   });

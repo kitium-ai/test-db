@@ -1,17 +1,23 @@
-import type { TestEnvironmentPreset } from './config.js';
-import { createTestDbConfigBuilder } from './config.js';
-import type { PostgresConfig, MongoDBConfig } from '../types/index.js';
-import type { PostgresTestDB } from '../postgres/client.js';
 import type { MongoDBTestDB } from '../mongodb/client.js';
-import { createPostgresTransactionalHarness, withPerTestMongoDatabase, withWorkerPostgresDatabase } from './isolation.js';
-import { applySqlFixtures, applyMongoFixtures, type MongoFixtureDocument } from './fixtures.js';
 import { createMongoDBTestDB } from '../mongodb/helpers.js';
+import type { PostgresTestDB } from '../postgres/client.js';
+import type { MongoDBConfig, PostgresConfig } from '../types/index.js';
+import {
+  createTestDbConfigBuilder as createTestDatabaseConfigBuilder,
+  type TestEnvironmentPreset,
+} from './config.js';
+import { applyMongoFixtures, applySqlFixtures, type MongoFixtureDocument } from './fixtures.js';
+import {
+  createPostgresTransactionalHarness,
+  withPerTestMongoDatabase,
+  withWorkerPostgresDatabase,
+} from './isolation.js';
 
 export interface JestVitestLifecycle {
-  beforeAll: (cb: () => Promise<void>) => void;
-  afterAll: (cb: () => Promise<void>) => void;
-  beforeEach: (cb: () => Promise<void>) => void;
-  afterEach: (cb: () => Promise<void>) => void;
+  beforeAll: (callback: () => Promise<void>) => void;
+  afterAll: (callback: () => Promise<void>) => void;
+  beforeEach: (callback: () => Promise<void>) => void;
+  afterEach: (callback: () => Promise<void>) => void;
 }
 
 export interface PostgresTestSetupOptions {
@@ -26,31 +32,33 @@ export interface PostgresTestSetupOptions {
 export const installPostgresTestHarness = (
   lifecycle: JestVitestLifecycle,
   options: PostgresTestSetupOptions,
-  handler: (db: PostgresTestDB, config: PostgresConfig) => Promise<void>
+  handler: (database: PostgresTestDB, config: PostgresConfig) => Promise<void>
 ): void => {
   const { getDb } = withWorkerPostgresDatabase(lifecycle, {
-    preset: options.preset,
-    overrides: options.overrides,
-    schemas: options.schemas,
+    ...(options.preset ? { preset: options.preset } : {}),
+    ...(options.overrides ? { overrides: options.overrides } : {}),
+    ...(options.schemas ? { schemas: options.schemas } : {}),
   });
 
   lifecycle.beforeAll(async () => {
-    const db = getDb();
-    const config = db.getConfig();
+    const database = getDb();
+    const config = database.getConfig();
     if (options.applyFixtures?.length) {
-      await applySqlFixtures(db, options.applyFixtures);
+      await applySqlFixtures(database, options.applyFixtures);
     }
-    await handler(db, config);
+    await handler(database, config);
   });
 
   if (options.useTransactionalIsolation) {
-    const harness = createPostgresTransactionalHarness(getDb(), { tablesToTruncate: options.truncateTables });
+    const harness = createPostgresTransactionalHarness(getDb(), {
+      ...(options.truncateTables ? { tablesToTruncate: options.truncateTables } : {}),
+    });
     lifecycle.beforeEach(harness.beforeEach);
     lifecycle.afterEach(harness.afterEach);
   } else if (options.truncateTables?.length) {
     lifecycle.afterEach(async () => {
-      const db = getDb();
-      await db.truncateTables(options.truncateTables ?? []);
+      const database = getDb();
+      await database.truncateTables(options.truncateTables ?? []);
     });
   }
 };
@@ -65,44 +73,49 @@ export interface MongoTestSetupOptions {
 export const installMongoTestHarness = (
   lifecycle: JestVitestLifecycle,
   options: MongoTestSetupOptions,
-  handler: (db: MongoDBTestDB, config: MongoDBConfig) => Promise<void>
+  handler: (database: MongoDBTestDB, config: MongoDBConfig) => Promise<void>
 ): void => {
   if (options.perTestDatabase) {
     const { getDb } = withPerTestMongoDatabase(
-      { preset: options.preset, overrides: options.overrides },
+      {
+        ...(options.preset ? { preset: options.preset } : {}),
+        ...(options.overrides ? { overrides: options.overrides } : {}),
+      },
       { beforeEach: lifecycle.beforeEach, afterEach: lifecycle.afterEach }
     );
 
     lifecycle.beforeEach(async () => {
-      const db = getDb();
-      const config = db.getConfig();
+      const database = getDb();
+      const config = database.getConfig();
       if (options.fixtures?.length) {
-        await applyMongoFixtures(db, options.fixtures);
+        await applyMongoFixtures(database, options.fixtures);
       }
-      await handler(db, config);
+      await handler(database, config);
     });
     return;
   }
 
-  const builder = createTestDbConfigBuilder(options?.preset).withMongo(options?.overrides ?? {});
-  let db: MongoDBTestDB;
+  const builder = createTestDatabaseConfigBuilder(options?.preset).withMongo(
+    options?.overrides ?? {}
+  );
+  let database: MongoDBTestDB;
   let config: MongoDBConfig;
 
   lifecycle.beforeAll(async () => {
     config = builder.buildMongo();
-    db = createMongoDBTestDB(config);
-    await db.connect();
+    database = createMongoDBTestDB(config);
+    await database.connect();
     if (options.fixtures?.length) {
-      await applyMongoFixtures(db, options.fixtures);
+      await applyMongoFixtures(database, options.fixtures);
     }
-    await handler(db, config);
+    await handler(database, config);
   });
 
   lifecycle.afterAll(async () => {
-    if (!db) {
+    if (!database) {
       return;
     }
-    await db.dropDatabase();
-    await db.disconnect();
+    await database.dropDatabase();
+    await database.disconnect();
   });
 };

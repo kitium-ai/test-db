@@ -44,20 +44,20 @@ export interface ITestDatabase {
   isConnected(): boolean;
   cleanup(): Promise<void>;
   seed(data: Record<string, unknown>): Promise<void>;
-  execute(query: string, params?: unknown[]): Promise<unknown>;
+  execute(query: string, parameters?: unknown[]): Promise<unknown>;
 }
 
 /**
  * PostgreSQL test database interface
  */
 export interface IPostgresTestDB extends ITestDatabase {
-  query(sql: string, params?: unknown[]): Promise<unknown>;
+  query(sql: string, parameters?: unknown[]): Promise<unknown>;
   transaction(callback: (client: unknown) => Promise<void>): Promise<void>;
   transactionalTest(callback: (client: unknown) => Promise<void>): Promise<void>;
   leaseClient(): Promise<unknown>;
   truncateTables(tables: string[]): Promise<void>;
-  createDatabase(dbName: string): Promise<void>;
-  dropDatabase(dbName: string): Promise<void>;
+  createDatabase(databaseName: string): Promise<void>;
+  dropDatabase(databaseName: string): Promise<void>;
   getConfig(): DatabaseConfig;
 }
 

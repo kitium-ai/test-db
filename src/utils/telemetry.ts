@@ -1,14 +1,18 @@
 import { performance } from 'node:perf_hooks';
+
 import { createLogger } from './logging.js';
 
 const logger = createLogger('TestDB:Telemetry');
 
 interface TelemetryApi {
   trace: {
-    getTracer: (name: string) => { startSpan: (name: string, options?: { attributes?: Record<string, unknown> }) => Span };
+    getTracer: (name: string) => {
+      startSpan: (name: string, options?: { attributes?: Record<string, unknown> }) => Span;
+    };
   };
-  context: { active: () => unknown; with: (ctx: unknown, fn: () => unknown) => unknown };
-  traceContext: unknown;
+  context: { active: () => unknown; with: (context: unknown, function_: () => unknown) => unknown };
+  // traceContext: unknown; // Removed as it's not in the API and caused a type error
+  // eslint-disable-next-line @typescript-eslint/naming-convention
   SpanStatusCode?: { ERROR: number };
 }
 
@@ -23,7 +27,7 @@ const loadTelemetryApi = async (): Promise<TelemetryApi | null> => {
   try {
     const api = await import('@opentelemetry/api');
     return api as TelemetryApi;
-  } catch (error) {
+  } catch {
     logger.debug('OpenTelemetry not available, falling back to logger metrics');
     return null;
   }
@@ -31,7 +35,7 @@ const loadTelemetryApi = async (): Promise<TelemetryApi | null> => {
 
 export async function withSpan<T>(
   name: string,
-  fn: () => Promise<T>,
+  function_: () => Promise<T>,
   attributes?: Record<string, unknown>
 ): Promise<T> {
   const telemetry = await loadTelemetryApi();
@@ -39,22 +43,26 @@ export async function withSpan<T>(
 
   if (!telemetry) {
     try {
-      const result = await fn();
+      const result = await function_();
       const durationMs = performance.now() - start;
       logger.debug('Operation completed (no-op span)', { name, durationMs, attributes });
       return result;
     } catch (error) {
       const durationMs = performance.now() - start;
-      logger.error('Operation failed (no-op span)', { name, durationMs, attributes }, error as Error);
+      logger.error(
+        'Operation failed (no-op span)',
+        { name, durationMs, attributes },
+        error as Error
+      );
       throw error;
     }
   }
 
   const tracer = telemetry.trace.getTracer('@kitium-ai/test-db');
-  const span: Span = tracer.startSpan(name, { attributes });
+  const span: Span = tracer.startSpan(name, attributes ? { attributes } : undefined);
 
   try {
-    const result = await telemetry.context.with(telemetry.context.active(), fn) as T;
+    const result = (await telemetry.context.with(telemetry.context.active(), function_)) as T;
     return result;
   } catch (error) {
     span.recordException?.(error);
