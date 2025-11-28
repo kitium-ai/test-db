@@ -7,6 +7,7 @@ import { measure } from '@kitiumai/scripts/utils';
 import { PostgresConfig, IPostgresTestDB, ConnectionState } from '../types/index.js';
 import { createLogger, ILogger } from '../utils/logging.js';
 import { validatePostgresConfig, sanitizePostgresConfig } from '../utils/config.js';
+import { withSpan } from '../utils/telemetry.js';
 
 /**
  * PostgreSQL Test Database Client
@@ -29,6 +30,10 @@ export class PostgresTestDB implements IPostgresTestDB {
     this.logger.info('PostgreSQL client initialized', sanitizePostgresConfig(config));
   }
 
+  public getConfig(): PostgresConfig {
+    return { ...this.config };
+  }
+
   /**
    * Connect to PostgreSQL database
    */
@@ -41,23 +46,25 @@ export class PostgresTestDB implements IPostgresTestDB {
     this.state = 'connecting';
 
     try {
-      await measure('PostgresTestDB.connect', async () => {
-        this.pool = new Pool({
-          host: this.config.host,
-          port: this.config.port,
-          user: this.config.username,
-          password: this.config.password,
-          database: this.config.database,
-          ssl: this.config.ssl,
-          connectionTimeoutMillis: this.config.connectionTimeout || 5000,
-          idleTimeoutMillis: this.config.idleTimeout || 30000,
-          max: this.config.maxConnections || 20,
-        });
+      await measure('PostgresTestDB.connect', async () =>
+        withSpan('postgres.connect', async () => {
+          this.pool = new Pool({
+            host: this.config.host,
+            port: this.config.port,
+            user: this.config.username,
+            password: this.config.password,
+            database: this.config.database,
+            ssl: this.config.ssl,
+            connectionTimeoutMillis: this.config.connectionTimeout || 5000,
+            idleTimeoutMillis: this.config.idleTimeout || 30000,
+            max: this.config.maxConnections || 20,
+          });
 
-        // Test the connection
-        const client = await this.pool.connect();
-        client.release();
-      });
+          // Test the connection
+          const client = await this.pool.connect();
+          client.release();
+        })
+      );
 
       this.state = 'connected';
       this.logger.info('Connected to PostgreSQL database');
@@ -80,12 +87,14 @@ export class PostgresTestDB implements IPostgresTestDB {
     this.state = 'disconnecting';
 
     try {
-      await measure('PostgresTestDB.disconnect', async () => {
-        if (this.pool) {
-          await this.pool.end();
-          this.pool = null;
-        }
-      });
+      await measure('PostgresTestDB.disconnect', async () =>
+        withSpan('postgres.disconnect', async () => {
+          if (this.pool) {
+            await this.pool.end();
+            this.pool = null;
+          }
+        })
+      );
       this.state = 'disconnected';
       this.logger.info('Disconnected from PostgreSQL database');
     } catch (error) {
@@ -112,13 +121,23 @@ export class PostgresTestDB implements IPostgresTestDB {
 
     try {
       this.logger.debug('Executing query', { sql, params: params?.length ?? 0 });
-      const result = await this.pool.query(sql, params);
+      const result = await withSpan('postgres.query', () => this.pool!.query(sql, params), { sql });
       return result;
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       this.logger.error('Query execution failed', { sql }, err);
       throw err;
     }
+  }
+
+  /**
+   * Borrow a raw client from the pool for advanced scenarios
+   */
+  public async leaseClient(): Promise<PoolClient> {
+    if (!this.isConnected() || !this.pool) {
+      throw new Error('Database is not connected');
+    }
+    return this.pool.connect();
   }
 
   /**
@@ -140,18 +159,45 @@ export class PostgresTestDB implements IPostgresTestDB {
     const client = await this.pool.connect();
 
     try {
-      await client.query('BEGIN');
-      this.logger.debug('Transaction started');
+      await withSpan('postgres.transaction', async () => {
+        await client.query('BEGIN');
+        this.logger.debug('Transaction started');
 
-      await callback(client);
+        await callback(client);
 
-      await client.query('COMMIT');
-      this.logger.debug('Transaction committed');
+        await client.query('COMMIT');
+        this.logger.debug('Transaction committed');
+      });
     } catch (error) {
       await client.query('ROLLBACK');
       const err = error instanceof Error ? error : new Error(String(error));
       this.logger.error('Transaction rolled back', undefined, err);
       throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Execute a transaction that always rolls back (useful for per-test isolation)
+   */
+  public async transactionalTest(callback: (client: PoolClient) => Promise<void>): Promise<void> {
+    if (!this.isConnected() || !this.pool) {
+      throw new Error('Database is not connected');
+    }
+
+    const client = await this.pool.connect();
+    try {
+      await withSpan('postgres.transaction.rollback', async () => {
+        await client.query('BEGIN');
+        this.logger.debug('Transactional test started');
+        await callback(client);
+        await client.query('ROLLBACK');
+        this.logger.debug('Transactional test rolled back');
+      });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error instanceof Error ? error : new Error(String(error));
     } finally {
       client.release();
     }
@@ -169,7 +215,7 @@ export class PostgresTestDB implements IPostgresTestDB {
     const sql = `TRUNCATE TABLE ${quotedTables} CASCADE`;
 
     try {
-      await this.query(sql);
+      await withSpan('postgres.truncate', () => this.query(sql), { tables });
       this.logger.info('Truncated tables', { tables });
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
@@ -201,8 +247,10 @@ export class PostgresTestDB implements IPostgresTestDB {
     });
 
     try {
-      await client.connect();
-      await client.query(`CREATE DATABASE "${dbName}"`);
+      await withSpan('postgres.database.create', async () => {
+        await client.connect();
+        await client.query(`CREATE DATABASE "${dbName}"`);
+      });
       this.logger.info('Created database', { database: dbName });
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
@@ -236,19 +284,21 @@ export class PostgresTestDB implements IPostgresTestDB {
     });
 
     try {
-      await client.connect();
-      // Terminate connections to the database
-      await client.query(
-        `
+      await withSpan('postgres.database.drop', async () => {
+        await client.connect();
+        // Terminate connections to the database
+        await client.query(
+          `
         SELECT pg_terminate_backend(pg_stat_activity.pid)
         FROM pg_stat_activity
         WHERE pg_stat_activity.datname = $1
         AND pid <> pg_backend_pid()
       `,
-        [dbName]
-      );
-      // Drop the database
-      await client.query(`DROP DATABASE IF EXISTS "${dbName}"`);
+          [dbName]
+        );
+        // Drop the database
+        await client.query(`DROP DATABASE IF EXISTS "${dbName}"`);
+      });
       this.logger.info('Dropped database', { database: dbName });
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
@@ -275,21 +325,23 @@ export class PostgresTestDB implements IPostgresTestDB {
     }
 
     try {
-      for (const [table, rows] of Object.entries(data)) {
-        if (!Array.isArray(rows)) {
-          this.logger.warn('Invalid seed data for table', { table });
-          continue;
-        }
+      await withSpan('postgres.seed', async () => {
+        for (const [table, rows] of Object.entries(data)) {
+          if (!Array.isArray(rows)) {
+            this.logger.warn('Invalid seed data for table', { table });
+            continue;
+          }
 
-        for (const row of rows) {
-          const columns = Object.keys(row as Record<string, unknown>);
-          const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
-          const values = columns.map((col) => (row as Record<string, unknown>)[col]);
+          for (const row of rows) {
+            const columns = Object.keys(row as Record<string, unknown>);
+            const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
+            const values = columns.map((col) => (row as Record<string, unknown>)[col]);
 
-          const sql = `INSERT INTO "${table}" (${columns.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders})`;
-          await this.query(sql, values);
+            const sql = `INSERT INTO "${table}" (${columns.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders})`;
+            await this.query(sql, values);
+          }
         }
-      }
+      });
 
       this.logger.info('Database seeded successfully');
     } catch (error) {

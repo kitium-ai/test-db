@@ -14,6 +14,9 @@ Enterprise-ready test database utilities for PostgreSQL and MongoDB. Provides re
 - ✅ **Security** - Sanitized logging, parameter binding, input validation
 - ✅ **Enterprise Ready** - Production-grade code quality and testing
 - ✅ **Kitium Toolchain Ready** - Shares the same config, lint, and logging stack as every other Kitium package
+- ✅ **Isolated test modes** - Per-test PostgreSQL rollbacks and per-test MongoDB databases to eliminate data leakage
+- ✅ **Fixture + schema helpers** - SQL/Mongo fixture runners and schema snapshot helpers for drift detection
+- ✅ **Optional OpenTelemetry spans** - Query/transaction spans emitted when `@opentelemetry/api` is present
 
 ## Kitium Platform Integration
 
@@ -80,6 +83,27 @@ async function example() {
 
   await db.disconnect();
 }
+```
+
+## Jest/Vitest bootstrapping
+
+Use the bundled harnesses to spin up disposable databases for each worker and opt into per-test isolation:
+
+```typescript
+import { installPostgresTestHarness, installMongoTestHarness } from '@kitium-ai/test-db';
+
+const lifecycle = { beforeAll, afterAll, beforeEach, afterEach };
+
+installPostgresTestHarness(lifecycle, {
+  schemas: {
+    users: ' (id SERIAL PRIMARY KEY, name TEXT NOT NULL)',
+  },
+  useTransactionalIsolation: true, // BEGIN/ROLLBACK around every test
+});
+
+installMongoTestHarness(lifecycle, {
+  perTestDatabase: true, // unique db name per test for maximal isolation
+});
 ```
 
 ## PostgreSQL API
