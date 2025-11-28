@@ -54,7 +54,7 @@ export {
   createMongoPreset,
   createTestDbConfigBuilder,
   TestDbConfigBuilder,
-  TestEnvironmentPreset,
+  type TestEnvironmentPreset,
 } from './utils/config.js';
 export { withTemporaryPostgresDatabase, withTemporaryMongoDatabase } from './utils/lifecycle.js';
 

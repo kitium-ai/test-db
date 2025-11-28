@@ -1,20 +1,11 @@
 {
-  "extends": "../../../../tooling/config/tsconfig.base.json",
+  "extends": "@kitiumai/config/tsconfig.base.json",
   "compilerOptions": {
-    "module": "commonjs",
+    "module": "Node16",
+    "moduleResolution": "node16",
     "outDir": "./dist",
     "rootDir": "./src",
-    "resolveJsonModule": true,
-    "baseUrl": ".",
-    "paths": {
-      "@kitiumai/logger": ["../../../../packages/core/@kitiumai/logger/dist/index.d.ts"],
-      "@kitiumai/logger/*": ["../../../../packages/core/@kitiumai/logger/dist/*"],
-      "@kitiumai/test-core": ["../test-core/dist/index.d.ts"],
-      "@kitiumai/test-core/*": ["../test-core/dist/*"],
-      "@kitiumai/scripts": ["../../../../tooling/scripts/dist/index.d.ts"],
-      "@kitiumai/scripts/*": ["../../../../tooling/scripts/dist/*"],
-      "@kitiumai/config/*": ["../../../../tooling/config/*"]
-    }
+    "resolveJsonModule": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "tests"]

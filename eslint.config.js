@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/naming-convention */
-import { nodeConfig } from '@kitiumai/lint/eslint';
+import { eslintNodeConfig } from '@kitiumai/lint';
 
 export default [
-  ...nodeConfig,
+  ...eslintNodeConfig,
   {
     ignores: ['dist/**', 'node_modules/**'],
   },

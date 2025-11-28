@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { measure } from '@kitiumai/scripts/utils';
-import { getTestLogger } from '@kitiumai/test-core/logger';
+import { getTestLogger } from '@kitiumai/test-core';
 import type { PostgresConfig, MongoDBConfig } from '../types/index.js';
 import { createPostgresTestDB } from '../postgres/helpers.js';
 import { createMongoDBTestDB } from '../mongodb/helpers.js';

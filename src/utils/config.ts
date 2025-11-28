@@ -2,8 +2,7 @@
  * @kitium-ai/test-db - Configuration utilities
  */
 
-import { getConfigManager } from '@kitiumai/test-core/config';
-import { deepMerge, sanitizeForLogging } from '@kitiumai/test-core/utils';
+import { getConfigManager, deepMerge, sanitizeForLogging } from '@kitiumai/test-core';
 import { log } from '@kitiumai/scripts/utils';
 import packageTemplate from '@kitiumai/config/packageBase.cjs';
 import { PostgresConfig, MongoDBConfig } from '../types/index.js';
@@ -103,38 +102,38 @@ const presetDefaults: Record<
   { postgres: Partial<PostgresConfig>; mongo: Partial<MongoDBConfig> }
 > = {
   local: {
-    postgres: { host: process.env.POSTGRES_HOST || 'localhost', ssl: false },
+    postgres: { host: process.env['POSTGRES_HOST'] || 'localhost', ssl: false },
     mongo: {
       uri:
-        process.env.MONGO_URI ||
-        `mongodb://${process.env.MONGO_USER || 'root'}:${process.env.MONGO_PASSWORD || 'root'}@${
-          process.env.MONGO_HOST || 'localhost'
-        }:${process.env.MONGO_PORT || 27017}`,
+        process.env['MONGO_URI'] ||
+        `mongodb://${process.env['MONGO_USER'] || 'root'}:${process.env['MONGO_PASSWORD'] || 'root'}@${
+          process.env['MONGO_HOST'] || 'localhost'
+        }:${process.env['MONGO_PORT'] || 27017}`,
     },
   },
   ci: {
     postgres: { host: 'postgres', ssl: false },
     mongo: {
       uri:
-        process.env.MONGO_URI ||
-        `mongodb://${process.env.MONGO_USER || 'root'}:${process.env.MONGO_PASSWORD || 'root'}@mongo:27017`,
+        process.env['MONGO_URI'] ||
+        `mongodb://${process.env['MONGO_USER'] || 'root'}:${process.env['MONGO_PASSWORD'] || 'root'}@mongo:27017`,
     },
   },
   staging: {
     postgres: {
       host:
-        process.env.STAGING_POSTGRES_HOST ||
-        process.env.POSTGRES_HOST ||
-        process.env.POSTGRES_STAGING_HOST ||
+        process.env['STAGING_POSTGRES_HOST'] ||
+        process.env['POSTGRES_HOST'] ||
+        process.env['POSTGRES_STAGING_HOST'] ||
         'staging-postgres',
       ssl: true,
     },
     mongo: {
       uri:
-        process.env.STAGING_MONGO_URI ||
-        `mongodb://${process.env.MONGO_USER || 'root'}:${process.env.MONGO_PASSWORD || 'root'}@${
-          process.env.MONGO_HOST || 'staging-mongo'
-        }:${process.env.MONGO_PORT || 27017}`,
+        process.env['STAGING_MONGO_URI'] ||
+        `mongodb://${process.env['MONGO_USER'] || 'root'}:${process.env['MONGO_PASSWORD'] || 'root'}@${
+          process.env['MONGO_HOST'] || 'staging-mongo'
+        }:${process.env['MONGO_PORT'] || 27017}`,
     },
   },
 };
