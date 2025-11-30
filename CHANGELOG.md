@@ -1,5 +1,9 @@
 # Changelog
 
+## [v2.0.1] - 2025-11-30
+
+bumped patch version for kitiumai packages 
+
 ## [v2.0.0] - 2025-11-28
 
 - Adopt shared Kitium toolchain: package.json scripts now match the `@kitiumai/config` template, the shared Prettier config is wired up, and TypeScript/ESLint consume the organization presets.

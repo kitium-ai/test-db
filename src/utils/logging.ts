@@ -2,11 +2,10 @@
  * @kitium-ai/test-db - Logging utilities
  */
 
-import { getLogger, type ILogger } from '@kitiumai/logger';
+import { getTestLogger } from '@kitiumai/test-core';
+import type { ILogger } from '@kitiumai/logger';
 
-const rootLogger = getLogger().child({
-  package: '@kitium-ai/test-db',
-});
+const rootLogger = getTestLogger('@kitium-ai/test-db');
 
 export function createLogger(scope: string): ILogger {
   if (typeof rootLogger.child === 'function') {

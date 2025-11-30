@@ -556,6 +556,68 @@ DEBUG=true npm test
 
 All database operations will be logged with timestamps and context information.
 
+## Usage & Tree-Shaking
+
+`@kitium-ai/test-db` is designed with **optimal tree-shaking** in mind. All modules are side-effect free (`"sideEffects": false`) and provide granular subpath exports so bundlers can eliminate unused code.
+
+### Recommended Import Patterns
+
+**Import only what you need** to minimize bundle size:
+
+```typescript
+// ✅ Granular imports (tree-shakable)
+import { createPostgresTestDB } from '@kitium-ai/test-db/postgres';
+import { createMongoDBTestDB } from '@kitium-ai/test-db/mongodb';
+import { getPostgresConfig, getMongoDBConfig } from '@kitium-ai/test-db/utils/config';
+import { applyMongoFixtures, applySqlFixtures } from '@kitium-ai/test-db/utils/fixtures';
+import { withTemporaryPostgresDatabase } from '@kitium-ai/test-db/utils/lifecycle';
+import type { PostgresConfig, MongoDBConfig } from '@kitium-ai/test-db/types';
+
+// ✅ Barrel import (all exports)
+import { createPostgresTestDB, PostgresConfig } from '@kitium-ai/test-db';
+```
+
+### Available Subpath Exports
+
+| Subpath | Exports |
+|---------|---------|
+| `@kitium-ai/test-db` | All exports (barrel) |
+| `@kitium-ai/test-db/postgres` | PostgreSQL client, helpers, setup/teardown |
+| `@kitium-ai/test-db/mongodb` | MongoDB client, helpers, setup/teardown |
+| `@kitium-ai/test-db/types` | TypeScript types and interfaces |
+| `@kitium-ai/test-db/utils/config` | Config builders, validation, sanitization |
+| `@kitium-ai/test-db/utils/fixtures` | SQL/MongoDB fixture utilities |
+| `@kitium-ai/test-db/utils/frameworks` | Jest/Vitest test harness installers |
+| `@kitium-ai/test-db/utils/isolation` | Per-test database isolation utilities |
+| `@kitium-ai/test-db/utils/lifecycle` | Temporary database lifecycle management |
+| `@kitium-ai/test-db/utils/logging` | Logger factory with scopes |
+| `@kitium-ai/test-db/utils/telemetry` | OpenTelemetry span utilities |
+
+### Integration with Kitium Shared Packages
+
+`@kitium-ai/test-db` leverages the latest APIs from Kitium's shared toolchain:
+
+```typescript
+// Uses @kitiumai/test-core for config management and deep merge
+import { getConfigManager, deepMerge, sanitizeForLogging } from '@kitiumai/test-core';
+
+// Uses @kitiumai/logger for structured logging
+import { getLogger, type ILogger } from '@kitiumai/logger';
+
+// Uses @kitiumai/config for base package configuration
+import packageTemplate from '@kitiumai/config/packageBase.cjs';
+
+// Uses @kitiumai/scripts for performance measurements
+import { measure, log } from '@kitiumai/scripts/utils';
+```
+
+**Benefits:**
+- Consistent logging format across all Kitium packages
+- Centralized configuration with environment variable merging
+- Automatic sanitization of sensitive data in logs
+- Built-in performance timing for database operations
+- Optional OpenTelemetry tracing when `@opentelemetry/api` is installed
+
 ## TypeScript Support
 
 Full TypeScript support with strict type checking:
