@@ -80,6 +80,14 @@ const booleanTypes = new Set(['boolean', 'bool']);
 const dateTypes = new Set(['date', 'datetime', 'timestamp']);
 const jsonTypes = new Set(['json', 'jsonb']);
 
+type DataColumnSchema = DataGenerationConfig['schema'][string];
+
+type BusinessRule = {
+  name: string;
+  condition: string;
+  description: string;
+};
+
 export class AIDataGenerator {
   private readonly logger: ILogger;
   private readonly aiContext?: AIContext;
@@ -306,11 +314,7 @@ export class AIDataGenerator {
    */
   public generateBusinessRuleCompliantData(
     config: DataGenerationConfig,
-    businessRules: Array<{
-      name: string;
-      condition: string;
-      description: string;
-    }>
+    businessRules: BusinessRule[]
   ): Promise<GeneratedData> {
     return withSpan('ai.data.generate.business-rules', () => {
       this.logger.info('Generating business rule compliant data', {
@@ -548,9 +552,12 @@ export class AIDataGenerator {
     }
   }
 
-  private generateForeignKeyValue(_columnSchema: unknown, index: number): unknown {
-    // In a real implementation, this would reference existing records
-    // For now, generate a plausible foreign key value
+  private generateForeignKeyValue(columnSchema: DataColumnSchema, index: number): unknown {
+    const referenceValues = columnSchema.references?.values;
+    if (Array.isArray(referenceValues) && referenceValues.length > 0) {
+      return referenceValues[index % referenceValues.length];
+    }
+
     return (index % 100) + 1;
   }
 
@@ -670,17 +677,264 @@ export class AIDataGenerator {
     return values.some((value) => typeof value === 'string' && emailRegex.test(value));
   }
 
-  private validateBusinessRules(record: Record<string, unknown>, rules: unknown[]): boolean {
-    // Simple business rule validation
-    // In a real implementation, this would evaluate complex rules
+  private validateBusinessRules(record: Record<string, unknown>, rules: BusinessRule[]): boolean {
     this.logger.debug('Validating business rules', {
       recordKeys: Object.keys(record),
       ruleCount: rules.length,
     });
-    return rules.every((_rule) => {
-      // Simplified validation - always pass for now
+
+    return rules.every((rule) => this.evaluateRuleCondition(record, rule));
+  }
+
+  private evaluateRuleCondition(record: Record<string, unknown>, rule: BusinessRule): boolean {
+    const condition = rule.condition.trim();
+    if (condition.length === 0) {
       return true;
-    });
+    }
+
+    const disjunctions = condition
+      .split('||')
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
+
+    for (const disjunction of disjunctions) {
+      const conjunctions = disjunction
+        .split('&&')
+        .map((part) => part.trim())
+        .filter((part) => part.length > 0);
+
+      const isConjunctionPassed = conjunctions.every((clause) =>
+        this.evaluateClause(record, rule, clause)
+      );
+      if (isConjunctionPassed) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private evaluateClause(
+    record: Record<string, unknown>,
+    rule: BusinessRule,
+    clause: string
+  ): boolean {
+    const parsedClause = this.parseBusinessRuleClause(clause);
+    if (parsedClause === null) {
+      this.logger.warn('Unsupported business rule clause', {
+        rule: rule.name,
+        clause,
+      });
+      return true;
+    }
+
+    return this.evaluateParsedClause(record, parsedClause);
+  }
+
+  private parseBusinessRuleClause(clause: string): {
+    left: string;
+    operator: string;
+    rightRaw: string;
+  } | null {
+    const normalized = clause.trim();
+    if (normalized.length === 0) {
+      return { left: '', operator: '==', rightRaw: 'true' };
+    }
+
+    const comparisonMatch =
+      /^(?<left>.+?)\s*(?<operator>==|!=|>=|<=|>|<)\s*(?<right>.+)$/.exec(normalized) ??
+      /^(?<left>.+?)\s+(?<operator>contains|in)\s+(?<right>.+)$/.exec(normalized);
+
+    if (!comparisonMatch?.groups) {
+      return null;
+    }
+
+    return {
+      left: comparisonMatch.groups['left']?.trim() ?? '',
+      operator: comparisonMatch.groups['operator']?.trim() ?? '',
+      rightRaw: comparisonMatch.groups['right']?.trim() ?? '',
+    };
+  }
+
+  private evaluateParsedClause(
+    record: Record<string, unknown>,
+    parsedClause: { left: string; operator: string; rightRaw: string }
+  ): boolean {
+    const leftValue = this.getRecordValue(record, parsedClause.left);
+
+    if (parsedClause.operator === 'contains') {
+      const rightValue = this.parseLiteral(parsedClause.rightRaw);
+      return this.evaluateContains(leftValue, rightValue);
+    }
+
+    if (parsedClause.operator === 'in') {
+      const rightValue = this.parseLiteralList(parsedClause.rightRaw);
+      return rightValue.includes(leftValue);
+    }
+
+    const rightValue = this.parseLiteral(parsedClause.rightRaw);
+    return this.evaluateComparison(leftValue, parsedClause.operator, rightValue);
+  }
+
+  private getRecordValue(record: Record<string, unknown>, selector: string): unknown {
+    const keys = selector
+      .split('.')
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
+
+    if (keys.length === 0) {
+      return undefined;
+    }
+
+    let value: unknown = record;
+    for (const key of keys) {
+      if (value && typeof value === 'object' && key in value) {
+        value = (value as Record<string, unknown>)[key];
+        continue;
+      }
+
+      return undefined;
+    }
+
+    return value;
+  }
+
+  private parseLiteral(raw: string): unknown {
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) {
+      return '';
+    }
+
+    const quoted = this.parseQuotedLiteral(trimmed);
+    if (quoted.handled) {
+      return quoted.value;
+    }
+
+    const keyword = this.parseKeywordLiteral(trimmed);
+    if (keyword.handled) {
+      return keyword.value;
+    }
+
+    const numeric = this.parseNumericLiteral(trimmed);
+    if (numeric.handled) {
+      return numeric.value;
+    }
+
+    return trimmed;
+  }
+
+  private parseQuotedLiteral(value: string): { handled: true; value: string } | { handled: false } {
+    const isSingleQuoted = value.startsWith("'") && value.endsWith("'");
+    const isDoubleQuoted = value.startsWith('"') && value.endsWith('"');
+
+    if ((isSingleQuoted || isDoubleQuoted) && value.length >= 2) {
+      return { handled: true, value: value.slice(1, -1) };
+    }
+
+    return { handled: false };
+  }
+
+  private parseKeywordLiteral(
+    value: string
+  ): { handled: true; value: null | undefined | boolean } | { handled: false } {
+    const lower = value.toLowerCase();
+
+    if (lower === 'null') {
+      return { handled: true, value: null };
+    }
+    if (lower === 'undefined') {
+      return { handled: true, value: undefined };
+    }
+    if (lower === 'true') {
+      return { handled: true, value: true };
+    }
+    if (lower === 'false') {
+      return { handled: true, value: false };
+    }
+
+    return { handled: false };
+  }
+
+  private parseNumericLiteral(
+    value: string
+  ): { handled: true; value: number } | { handled: false } {
+    const numericValue = Number(value);
+    if (!Number.isNaN(numericValue) && value !== '') {
+      return { handled: true, value: numericValue };
+    }
+
+    return { handled: false };
+  }
+
+  private parseLiteralList(raw: string): unknown[] {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      const normalized = trimmed.replace(/'/g, '"');
+      try {
+        const parsed = JSON.parse(normalized) as unknown;
+        return Array.isArray(parsed) ? parsed : [parsed];
+      } catch (error) {
+        this.logger.warn('Failed to parse list literal for business rule', {
+          raw,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return trimmed
+      .split(',')
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0)
+      .map((value) => this.parseLiteral(value));
+  }
+
+  private evaluateContains(leftValue: unknown, rightValue: unknown): boolean {
+    if (typeof leftValue === 'string') {
+      return leftValue.includes(String(rightValue));
+    }
+
+    if (Array.isArray(leftValue)) {
+      return leftValue.includes(rightValue);
+    }
+
+    return false;
+  }
+
+  private evaluateComparison(leftValue: unknown, operator: string, rightValue: unknown): boolean {
+    if (operator === '==' || operator === '!=') {
+      const isEqual = leftValue === rightValue;
+      return operator === '==' ? isEqual : !isEqual;
+    }
+
+    const leftComparable = this.toNumberComparable(leftValue);
+    const rightComparable = this.toNumberComparable(rightValue);
+
+    if (leftComparable === null || rightComparable === null) {
+      return false;
+    }
+
+    if (operator === '>') {
+      return leftComparable > rightComparable;
+    }
+    if (operator === '>=') {
+      return leftComparable >= rightComparable;
+    }
+    if (operator === '<') {
+      return leftComparable < rightComparable;
+    }
+    if (operator === '<=') {
+      return leftComparable <= rightComparable;
+    }
+
+    return false;
+  }
+
+  private toNumberComparable(value: unknown): number | null {
+    if (value instanceof Date) {
+      return value.getTime();
+    }
+
+    return typeof value === 'number' ? value : null;
   }
 }
 
