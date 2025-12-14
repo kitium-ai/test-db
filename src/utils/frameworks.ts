@@ -13,21 +13,21 @@ import {
   withWorkerPostgresDatabase,
 } from './isolation.js';
 
-export interface JestVitestLifecycle {
+export type JestVitestLifecycle = {
   beforeAll: (callback: () => Promise<void>) => void;
   afterAll: (callback: () => Promise<void>) => void;
   beforeEach: (callback: () => Promise<void>) => void;
   afterEach: (callback: () => Promise<void>) => void;
-}
+};
 
-export interface PostgresTestSetupOptions {
+export type PostgresTestSetupOptions = {
   preset?: TestEnvironmentPreset;
   overrides?: Partial<PostgresConfig>;
   schemas?: Record<string, string>;
   truncateTables?: string[];
   applyFixtures?: string[];
   useTransactionalIsolation?: boolean;
-}
+};
 
 export const installPostgresTestHarness = (
   lifecycle: JestVitestLifecycle,
@@ -63,12 +63,12 @@ export const installPostgresTestHarness = (
   }
 };
 
-export interface MongoTestSetupOptions {
+export type MongoTestSetupOptions = {
   preset?: TestEnvironmentPreset;
   overrides?: Partial<MongoDBConfig>;
   fixtures?: MongoFixtureDocument[];
   perTestDatabase?: boolean;
-}
+};
 
 export const installMongoTestHarness = (
   lifecycle: JestVitestLifecycle,

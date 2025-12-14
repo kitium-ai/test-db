@@ -1,14 +1,12 @@
 import { randomUUID } from 'node:crypto';
+
 import { measure } from '@kitiumai/scripts/utils';
 
-import { createMongoDBTestDB } from '../mongodb/helpers.js';
 import type { MongoDBTestDB } from '../mongodb/client.js';
+import { createMongoDBTestDB } from '../mongodb/helpers.js';
 import type { PostgresTestDB } from '../postgres/client.js';
-
 import { createPostgresTestDB } from '../postgres/helpers.js';
-
 import type { MongoDBConfig, PostgresConfig } from '../types/index.js';
-
 import {
   createTestDbConfigBuilder as createTestDatabaseConfigBuilder,
   type TestEnvironmentPreset,
@@ -20,20 +18,20 @@ const logger = createLogger('TestDB:Lifecycle');
 const uniqueName = (prefix: string): string =>
   `${prefix}_${Date.now().toString(36)}_${randomUUID().split('-')[0]}`;
 
-export interface TemporaryPostgresOptions {
+export type TemporaryPostgresOptions = {
   preset?: TestEnvironmentPreset;
   databaseName?: string;
   prefix?: string;
   schemas?: Record<string, string>;
   overrides?: Partial<PostgresConfig>;
-}
+};
 
-export interface TemporaryMongoOptions {
+export type TemporaryMongoOptions = {
   preset?: TestEnvironmentPreset;
   databaseName?: string;
   prefix?: string;
   overrides?: Partial<MongoDBConfig>;
-}
+};
 
 export async function withTemporaryPostgresDatabase(
   options: TemporaryPostgresOptions,

@@ -2,14 +2,16 @@
  * @kitium-ai/test-db - PostgreSQL Test Client
  */
 
-import { Client, Pool, PoolClient, QueryResult } from 'pg';
+import { Client, Pool, type PoolClient, type QueryResult } from 'pg';
 
-import { ConnectionState, IPostgresTestDB, PostgresConfig } from '../types/index.js';
+import type { ConnectionState, IPostgresTestDB, PostgresConfig } from '../types/index.js';
 import { sanitizePostgresConfig, validatePostgresConfig } from '../utils/config.js';
 import { addErrorToMeta } from '../utils/errors.js';
 import { instrument } from '../utils/instrument.js';
-import { createLogger, ILogger } from '../utils/logging.js';
+import { createLogger, type ILogger } from '../utils/logging.js';
 import { withSpan } from '../utils/telemetry.js';
+
+const databaseNotConnectedError = 'Database is not connected';
 
 /**
  * PostgreSQL Test Database Client
@@ -56,9 +58,9 @@ export class PostgresTestDB implements IPostgresTestDB {
           password: this.config.password,
           database: this.config.database,
           ssl: this.config.ssl,
-          connectionTimeoutMillis: this.config.connectionTimeout || 5000,
-          idleTimeoutMillis: this.config.idleTimeout || 30000,
-          max: this.config.maxConnections || 20,
+          connectionTimeoutMillis: this.config.connectionTimeout ?? 5000,
+          idleTimeoutMillis: this.config.idleTimeout ?? 30000,
+          max: this.config.maxConnections ?? 20,
         });
 
         // Test the connection
@@ -114,12 +116,13 @@ export class PostgresTestDB implements IPostgresTestDB {
    */
   public async query(sql: string, parameters?: unknown[]): Promise<QueryResult> {
     if (!this.isConnected() || !this.pool) {
-      throw new Error('Database is not connected');
+      throw new Error(databaseNotConnectedError);
     }
 
+    const pool = this.pool;
     try {
       this.logger.debug('Executing query', { sql, params: parameters?.length ?? 0 });
-      const result = await withSpan('postgres.query', () => this.pool!.query(sql, parameters), {
+      const result = await withSpan('postgres.query', () => pool.query(sql, parameters), {
         sql,
       });
       return result;
@@ -133,9 +136,9 @@ export class PostgresTestDB implements IPostgresTestDB {
   /**
    * Borrow a raw client from the pool for advanced scenarios
    */
-  public async leaseClient(): Promise<PoolClient> {
+  public leaseClient(): Promise<PoolClient> {
     if (!this.isConnected() || !this.pool) {
-      throw new Error('Database is not connected');
+      throw new Error(databaseNotConnectedError);
     }
     return this.pool.connect();
   }
@@ -151,9 +154,10 @@ export class PostgresTestDB implements IPostgresTestDB {
   /**
    * Execute a transaction
    */
+  // eslint-disable-next-line promise/prefer-await-to-callbacks
   public async transaction(callback: (client: PoolClient) => Promise<void>): Promise<void> {
     if (!this.isConnected() || !this.pool) {
-      throw new Error('Database is not connected');
+      throw new Error(databaseNotConnectedError);
     }
 
     const client = await this.pool.connect();
@@ -163,6 +167,7 @@ export class PostgresTestDB implements IPostgresTestDB {
         await client.query('BEGIN');
         this.logger.debug('Transaction started');
 
+        // eslint-disable-next-line promise/prefer-await-to-callbacks
         await callback(client);
 
         await client.query('COMMIT');
@@ -181,9 +186,10 @@ export class PostgresTestDB implements IPostgresTestDB {
   /**
    * Execute a transaction that always rolls back (useful for per-test isolation)
    */
+  // eslint-disable-next-line promise/prefer-await-to-callbacks
   public async transactionalTest(callback: (client: PoolClient) => Promise<void>): Promise<void> {
     if (!this.isConnected() || !this.pool) {
-      throw new Error('Database is not connected');
+      throw new Error(databaseNotConnectedError);
     }
 
     const client = await this.pool.connect();
@@ -191,6 +197,7 @@ export class PostgresTestDB implements IPostgresTestDB {
       await withSpan('postgres.transaction.rollback', async () => {
         await client.query('BEGIN');
         this.logger.debug('Transactional test started');
+        // eslint-disable-next-line promise/prefer-await-to-callbacks
         await callback(client);
         await client.query('ROLLBACK');
         this.logger.debug('Transactional test rolled back');
@@ -228,13 +235,13 @@ export class PostgresTestDB implements IPostgresTestDB {
    * Create a new database
    */
   public async createDatabase(databaseName: string): Promise<void> {
-    const validDatabaseName = /^[a-zA-Z0-9_-]+$/.test(databaseName);
-    if (!validDatabaseName) {
+    const isValidDatabaseName = /^[a-zA-Z0-9_-]+$/.test(databaseName);
+    if (!isValidDatabaseName) {
       throw new Error('Invalid database name');
     }
 
     if (!this.pool) {
-      throw new Error('Database is not connected');
+      throw new Error(databaseNotConnectedError);
     }
 
     // Use a temporary client to create the database
@@ -268,13 +275,13 @@ export class PostgresTestDB implements IPostgresTestDB {
    * Drop a database
    */
   public async dropDatabase(databaseName: string): Promise<void> {
-    const validDatabaseName = /^[a-zA-Z0-9_-]+$/.test(databaseName);
-    if (!validDatabaseName) {
+    const isValidDatabaseName = /^[a-zA-Z0-9_-]+$/.test(databaseName);
+    if (!isValidDatabaseName) {
       throw new Error('Invalid database name');
     }
 
     if (!this.pool) {
-      throw new Error('Database is not connected');
+      throw new Error(databaseNotConnectedError);
     }
 
     // Use a temporary client to drop the database
@@ -327,7 +334,7 @@ export class PostgresTestDB implements IPostgresTestDB {
    */
   public async seed(data: Record<string, unknown>): Promise<void> {
     if (!this.isConnected()) {
-      throw new Error('Database is not connected');
+      throw new Error(databaseNotConnectedError);
     }
 
     try {
@@ -343,7 +350,8 @@ export class PostgresTestDB implements IPostgresTestDB {
             const placeholders = columns.map((_, index) => `$${index + 1}`).join(', ');
             const values = columns.map((col) => (row as Record<string, unknown>)[col]);
 
-            const sql = `INSERT INTO "${table}" (${columns.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders})`;
+            const columnList = columns.map((column) => `"${column}"`).join(', ');
+            const sql = `INSERT INTO "${table}" (${columnList}) VALUES (${placeholders})`;
             await this.query(sql, values);
           }
         }

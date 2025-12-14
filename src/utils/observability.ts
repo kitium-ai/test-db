@@ -2,12 +2,12 @@
  * Advanced observability utilities for database testing
  */
 
-import { EventEmitter } from 'events';
+import { EventEmitter } from 'node:events';
 
-import { createLogger, ILogger } from './logging.js';
+import { createLogger, type ILogger } from './logging.js';
 import { withSpan } from './telemetry.js';
 
-export interface ObservabilityConfig {
+export type ObservabilityConfig = {
   enableMetrics: boolean;
   enableTracing: boolean;
   enableLogging: boolean;
@@ -26,17 +26,17 @@ export interface ObservabilityConfig {
     format: 'json' | 'text';
     exporters: string[];
   };
-}
+};
 
-export interface MetricPoint {
+export type MetricPoint = {
   name: string;
   value: number;
   timestamp: number;
   tags: Record<string, string>;
   type: 'counter' | 'gauge' | 'histogram' | 'summary';
-}
+};
 
-export interface TraceSpan {
+export type TraceSpan = {
   id: string;
   traceId: string;
   parentId?: string;
@@ -54,17 +54,17 @@ export interface TraceSpan {
     code: 'ok' | 'error';
     message?: string;
   };
-}
+};
 
-export interface LogEntry {
+export type LogEntry = {
   timestamp: number;
   level: string;
   message: string;
   context: Record<string, unknown>;
   error?: Error;
-}
+};
 
-export interface DashboardData {
+export type DashboardData = {
   metrics: {
     queryLatency: MetricPoint[];
     connectionPoolUsage: MetricPoint[];
@@ -88,16 +88,16 @@ export interface DashboardData {
     timestamp: number;
     resolved: boolean;
   }>;
-}
+};
 
 export class AdvancedObservabilityManager {
   private readonly logger: ILogger;
   private readonly eventEmitter: EventEmitter;
-  private config: ObservabilityConfig;
-  private metrics: Map<string, MetricPoint[]> = new Map();
-  private activeSpans: Map<string, TraceSpan> = new Map();
+  private readonly config: ObservabilityConfig;
+  private readonly metrics: Map<string, MetricPoint[]> = new Map();
+  private readonly activeSpans: Map<string, TraceSpan> = new Map();
   private logs: LogEntry[] = [];
-  private alerts: Array<DashboardData['alerts'][0]> = [];
+  private readonly alerts: Array<DashboardData['alerts'][0]> = [];
   private collectionInterval?: NodeJS.Timeout;
 
   constructor(config: Partial<ObservabilityConfig> = {}) {
@@ -142,7 +142,7 @@ export class AdvancedObservabilityManager {
       timestamp: Date.now(),
     };
 
-    const existing = this.metrics.get(point.name) || [];
+    const existing = this.metrics.get(point.name) ?? [];
     existing.push(metricPoint);
 
     // Keep only recent metrics
@@ -317,12 +317,12 @@ export class AdvancedObservabilityManager {
   /**
    * Get dashboard data
    */
-  public async getDashboardData(): Promise<DashboardData> {
-    return withSpan('observability.dashboard.get', async () => {
+  public getDashboardData(): Promise<DashboardData> {
+    return withSpan('observability.dashboard.get', () => {
       const now = Date.now();
       const oneHourAgo = now - 3600000;
 
-      return {
+      return Promise.resolve({
         metrics: {
           queryLatency: this.getMetricsByName('query.latency', oneHourAgo),
           connectionPoolUsage: this.getMetricsByName('connection.pool.usage', oneHourAgo),
@@ -340,7 +340,7 @@ export class AdvancedObservabilityManager {
           performanceLogs: this.getPerformanceLogs(20),
         },
         alerts: this.alerts.filter((a) => !a.resolved || a.timestamp > oneHourAgo),
-      };
+      });
     });
   }
 
@@ -415,7 +415,7 @@ export class AdvancedObservabilityManager {
       const data = await this.getDashboardData();
 
       for (const rule of rules) {
-        const lastTrigger = lastTriggered.get(rule.name) || 0;
+        const lastTrigger = lastTriggered.get(rule.name) ?? 0;
         const now = Date.now();
 
         if (now - lastTrigger < rule.cooldownMs) {
@@ -430,7 +430,9 @@ export class AdvancedObservabilityManager {
     };
 
     // Check rules every minute
-    setInterval(checkRules, 60000);
+    setInterval(() => {
+      void checkRules();
+    }, 60000);
   }
 
   /**
@@ -450,32 +452,36 @@ export class AdvancedObservabilityManager {
       return;
     }
 
-    this.collectionInterval = setInterval(async () => {
-      try {
-        await this.exportMetrics();
-        await this.exportTraces();
-        await this.exportLogs();
-      } catch (error) {
-        this.logger.error('Failed to export observability data', { error });
-      }
+    this.collectionInterval = setInterval(() => {
+      void this.exportTick();
     }, this.config.metrics.collectionInterval);
   }
 
+  private async exportTick(): Promise<void> {
+    try {
+      await this.exportMetrics();
+      await this.exportTraces();
+      await this.exportLogs();
+    } catch (error) {
+      this.logger.error('Failed to export observability data', { error });
+    }
+  }
+
   private getMetricsByName(name: string, since: number): MetricPoint[] {
-    return this.metrics.get(name)?.filter((m) => m.timestamp > since) || [];
+    return this.metrics.get(name)?.filter((m) => m.timestamp > since) ?? [];
   }
 
   private getRecentSpans(limit: number): TraceSpan[] {
     return Array.from(this.activeSpans.values())
       .filter((span) => span.endTime)
-      .sort((a, b) => (b.endTime || 0) - (a.endTime || 0))
+      .sort((a, b) => (b.endTime ?? 0) - (a.endTime ?? 0))
       .slice(0, limit);
   }
 
   private getSlowSpans(thresholdMs: number): TraceSpan[] {
     return Array.from(this.activeSpans.values())
       .filter((span) => span.duration && span.duration > thresholdMs)
-      .sort((a, b) => (b.duration || 0) - (a.duration || 0));
+      .sort((a, b) => (b.duration ?? 0) - (a.duration ?? 0));
   }
 
   private getErrorSpans(): TraceSpan[] {
@@ -502,13 +508,13 @@ export class AdvancedObservabilityManager {
 
   private getTraceId(spanId: string): string {
     const span = this.activeSpans.get(spanId);
-    return span?.traceId || this.generateId();
+    return span?.traceId ?? this.generateId();
   }
 
-  private async exportToSystem(exporter: string, type: string, data: unknown): Promise<void> {
+  private exportToSystem(exporter: string, type: string, data: unknown): Promise<void> {
     switch (exporter) {
       case 'console':
-        console.log(`[${type.toUpperCase()}]`, data);
+        this.logger.info('Observability export', { exporter, type, data });
         break;
       case 'prometheus':
         // In a real implementation, this would send to Prometheus
@@ -534,13 +540,13 @@ export class AdvancedObservabilityManager {
       default:
         this.logger.warn('Unknown exporter', { exporter });
     }
+
+    return Promise.resolve();
   }
 }
 
 // Convenience functions for common observability patterns
-export const createDatabaseMetrics = (
-  manager: AdvancedObservabilityManager
-): {
+type DatabaseMetrics = {
   recordQueryLatency: (latency: number, queryType: string, database: string) => void;
   recordConnectionCount: (count: number, database: string) => void;
   recordQueryCount: (database: string, queryType: string) => void;
@@ -548,84 +554,58 @@ export const createDatabaseMetrics = (
   recordConnectionPoolUsage: (used: number, total: number, database: string) => void;
   recordError: (errorType: string, database: string) => void;
   recordThroughput: (operations: number, database: string) => void;
-} => ({
-  recordQueryLatency: (latency: number, queryType: string, database: string) => {
-    manager.recordMetric({
-      name: 'query.latency',
-      value: latency,
-      tags: { queryType, database },
-      type: 'histogram',
-    });
-  },
+};
 
-  recordConnectionCount: (count: number, database: string) => {
-    manager.recordMetric({
-      name: 'connection.count',
-      value: count,
-      tags: { database },
-      type: 'gauge',
-    });
-  },
+const recordManagerMetric = (
+  manager: AdvancedObservabilityManager,
+  name: string,
+  value: number,
+  tags: Record<string, string>,
+  type: MetricPoint['type']
+): void => {
+  manager.recordMetric({ name, value, tags, type });
+};
 
-  recordQueryCount: (database: string, queryType: string) => {
-    manager.recordMetric({
-      name: 'query.count',
-      value: 1,
-      tags: { database, queryType },
-      type: 'counter',
-    });
-  },
-
-  recordErrorCount: (database: string, errorType: string) => {
-    manager.recordMetric({
-      name: 'error.count',
-      value: 1,
-      tags: { database, errorType },
-      type: 'counter',
-    });
-  },
-
-  recordConnectionPoolUsage: (used: number, total: number, database: string) => {
-    manager.recordMetric({
-      name: 'connection.pool.usage',
-      value: (used / total) * 100,
-      tags: { database },
-      type: 'gauge',
-    });
-  },
-
-  recordError: (errorType: string, database: string) => {
-    manager.recordMetric({
-      name: 'error.rate',
-      value: 1,
-      tags: { errorType, database },
-      type: 'counter',
-    });
-  },
-
-  recordThroughput: (operations: number, database: string) => {
-    manager.recordMetric({
-      name: 'throughput',
-      value: operations,
-      tags: { database },
-      type: 'counter',
-    });
-  },
-});
+export const createDatabaseMetrics = (manager: AdvancedObservabilityManager): DatabaseMetrics => {
+  return {
+    recordQueryLatency: (latency, queryType, database) => {
+      recordManagerMetric(manager, 'query.latency', latency, { queryType, database }, 'histogram');
+    },
+    recordConnectionCount: (count, database) => {
+      recordManagerMetric(manager, 'connection.count', count, { database }, 'gauge');
+    },
+    recordQueryCount: (database, queryType) => {
+      recordManagerMetric(manager, 'query.count', 1, { database, queryType }, 'counter');
+    },
+    recordErrorCount: (database, errorType) => {
+      recordManagerMetric(manager, 'error.count', 1, { database, errorType }, 'counter');
+    },
+    recordConnectionPoolUsage: (used, total, database) => {
+      const value = (used / total) * 100;
+      recordManagerMetric(manager, 'connection.pool.usage', value, { database }, 'gauge');
+    },
+    recordError: (errorType, database) => {
+      recordManagerMetric(manager, 'error.rate', 1, { errorType, database }, 'counter');
+    },
+    recordThroughput: (operations, database) => {
+      recordManagerMetric(manager, 'throughput', operations, { database }, 'counter');
+    },
+  };
+};
 
 export const createDatabaseTracing = (
   manager: AdvancedObservabilityManager
 ): {
-  startQuerySpan: (query: string, database: string, params?: Record<string, unknown>) => string;
+  startQuerySpan: (query: string, database: string, parameters?: Record<string, unknown>) => string;
   startTransactionSpan: (name: string, database: string) => string;
   addQueryEvent: (spanId: string, query: string, rowCount?: number) => void;
 } => ({
-  startQuerySpan: (query: string, database: string, params?: Record<string, unknown>) => {
+  startQuerySpan: (query: string, database: string, parameters?: Record<string, unknown>) => {
     return manager.startSpan('database.query', {
       /* eslint-disable @typescript-eslint/naming-convention */
       'db.statement': query,
       'db.system': database,
-      'db.params': params,
+      'db.params': parameters,
       /* eslint-enable @typescript-eslint/naming-convention */
     });
   },
@@ -647,9 +627,7 @@ export const createDatabaseTracing = (
   },
 });
 
-export const createDatabaseLogging = (
-  manager: AdvancedObservabilityManager
-): {
+type DatabaseLogging = {
   logQuery: (
     level: LogEntry['level'],
     query: string,
@@ -673,61 +651,57 @@ export const createDatabaseLogging = (
     status: 'started' | 'completed' | 'failed',
     context?: Record<string, unknown>
   ) => void;
-} => ({
-  logQuery: (
-    level: LogEntry['level'],
-    query: string,
-    duration: number,
-    context?: Record<string, unknown>
-  ) => {
-    manager.log(level, 'Database query executed', {
-      query: query.substring(0, 200),
-      duration,
-      performance: duration > 1000, // Mark as performance log if slow
-      ...context,
-    });
-  },
+};
 
-  logTransaction: (
-    level: LogEntry['level'],
-    name: string,
-    duration: number,
-    context?: Record<string, unknown>
-  ) => {
-    manager.log(level, 'Database transaction executed', {
-      transaction: name,
-      duration,
-      performance: duration > 1000, // Mark as performance log if slow
-      ...context,
-    });
-  },
-
-  logError: (error: Error, context?: Record<string, unknown>) => {
-    manager.log('error', error.message, context, error);
-  },
-
-  logConnection: (action: 'acquired' | 'released' | 'failed', database: string, error?: Error) => {
-    manager.log(
-      action === 'failed' ? 'error' : 'info',
-      `Database connection ${action}`,
-      { database },
-      error
-    );
-  },
-
-  logMigration: (
-    migrationName: string,
-    status: 'started' | 'completed' | 'failed',
-    context?: Record<string, unknown>
-  ) => {
-    manager.log(
-      status === 'failed' ? 'error' : 'info',
-      `Schema migration ${status}`,
-      { migration: migrationName, ...context },
-      context?.['error'] as Error | undefined
-    );
-  },
+const buildPerformanceContext = (
+  duration: number,
+  extraContext?: Record<string, unknown>
+): Record<string, unknown> => ({
+  duration,
+  performance: duration > 1000,
+  ...extraContext,
 });
+
+const getErrorFromContext = (context?: Record<string, unknown>): Error | undefined => {
+  const error = context?.['error'];
+  return error instanceof Error ? error : undefined;
+};
+
+export const createDatabaseLogging = (manager: AdvancedObservabilityManager): DatabaseLogging => {
+  return {
+    logQuery: (level, query, duration, context) => {
+      manager.log(level, 'Database query executed', {
+        query: query.substring(0, 200),
+        ...buildPerformanceContext(duration, context),
+      });
+    },
+    logTransaction: (level, name, duration, context) => {
+      manager.log(level, 'Database transaction executed', {
+        transaction: name,
+        ...buildPerformanceContext(duration, context),
+      });
+    },
+    logError: (error, context) => {
+      manager.log('error', error.message, context, error);
+    },
+    logConnection: (action, database, error) => {
+      manager.log(
+        action === 'failed' ? 'error' : 'info',
+        `Database connection ${action}`,
+        { database },
+        error
+      );
+    },
+    logMigration: (migrationName, status, context) => {
+      manager.log(
+        status === 'failed' ? 'error' : 'info',
+        `Schema migration ${status}`,
+        { migration: migrationName, ...context },
+        getErrorFromContext(context)
+      );
+    },
+  };
+};
 
 // Default alerting rules
 export const defaultAlertingRules = [

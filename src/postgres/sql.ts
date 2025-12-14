@@ -1,13 +1,13 @@
-export type SqlParams = unknown[];
+export type SqlParameters = unknown[];
 
 export type SqlStatement = {
   sql: string;
-  values: SqlParams;
+  values: SqlParameters;
 };
 
 export type WhereClause = {
   clause: string;
-  values: SqlParams;
+  values: SqlParameters;
 };
 
 export function buildWhereClause(

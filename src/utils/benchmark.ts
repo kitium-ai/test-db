@@ -2,22 +2,22 @@
  * Performance benchmarking suite for database testing
  */
 
-import { performance } from 'perf_hooks';
+import { performance } from 'node:perf_hooks';
 
-import { MongoDBTestDB } from '../mongodb/client.js';
+import type { MongoDBTestDB } from '../mongodb/client.js';
 import { PostgresTestDB } from '../postgres/client.js';
 import { createLogger, type ILogger } from './logging.js';
 import { withSpan } from './telemetry.js';
 
-export interface QueryBenchmark {
+export type QueryBenchmark = {
   name: string;
   query: string;
   parameters?: unknown[];
   iterations?: number;
   warmupIterations?: number;
-}
+};
 
-export interface BenchmarkResult {
+export type BenchmarkResult = {
   name: string;
   totalTime: number;
   averageTime: number;
@@ -34,16 +34,16 @@ export interface BenchmarkResult {
     heapTotal: number;
   };
   errors: number;
-}
+};
 
-export interface ConnectionPoolBenchmark {
+export type ConnectionPoolBenchmark = {
   name: string;
   concurrentConnections: number;
   duration: number;
   operationsPerConnection: number;
-}
+};
 
-export interface LoadTestScenario {
+export type LoadTestScenario = {
   name: string;
   duration: string;
   concurrency: number;
@@ -51,7 +51,21 @@ export interface LoadTestScenario {
     weight: number; // Relative frequency
     operation: () => Promise<void>;
   }>;
-}
+};
+
+export type LoadTestResult = {
+  scenario: string;
+  duration: number;
+  totalOperations: number;
+  throughput: number;
+  latency: {
+    average: number;
+    p95: number;
+    p99: number;
+  };
+  errors: number;
+  metrics: Record<string, number[]>;
+};
 
 export class DatabaseBenchmarkSuite {
   private readonly logger: ILogger;
@@ -106,152 +120,184 @@ export class DatabaseBenchmarkSuite {
   /**
    * Benchmark connection pool performance
    */
-  public async benchmarkConnectionPool(
+  public benchmarkConnectionPool(
     database: PostgresTestDB | MongoDBTestDB,
     config: ConnectionPoolBenchmark
   ): Promise<BenchmarkResult> {
-    return withSpan('connection.pool.benchmark', async () => {
-      this.logger.info('Starting connection pool benchmark', { name: config.name });
+    return withSpan('connection.pool.benchmark', () =>
+      this.runConnectionPoolBenchmark(database, config)
+    );
+  }
 
-      const startTime = performance.now();
-      let totalOperations = 0;
-      let errors = 0;
+  private async runConnectionPoolBenchmark(
+    database: PostgresTestDB | MongoDBTestDB,
+    config: ConnectionPoolBenchmark
+  ): Promise<BenchmarkResult> {
+    this.logger.info('Starting connection pool benchmark', { name: config.name });
 
-      // Create concurrent connections
-      const promises = Array.from({ length: config.concurrentConnections }, async (_, index) => {
-        try {
-          for (let i = 0; i < config.operationsPerConnection; i++) {
-            if (database instanceof PostgresTestDB) {
-              await database.query('SELECT 1');
-            } else {
-              await database.execute('SELECT 1');
-            }
-            totalOperations++;
-          }
-        } catch (error) {
-          errors++;
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          this.logger.warn('Connection pool operation failed', {
-            connection: index,
-            error: errorMessage,
-          });
-        }
-      });
+    const startTime = performance.now();
+    const totals = { operations: 0, errors: 0 };
 
-      await Promise.all(promises);
-      const endTime = performance.now();
-      const totalTime = endTime - startTime;
+    const workers = Array.from({ length: config.concurrentConnections }, (_, index) =>
+      this.runConnectionPoolWorker(database, config.operationsPerConnection, index, totals)
+    );
 
-      const result: BenchmarkResult = {
-        name: config.name,
-        totalTime,
-        averageTime: totalTime / totalOperations,
-        medianTime: totalTime / totalOperations, // Simplified
-        minTime: 0, // Would need to track individual times
-        maxTime: 0,
-        p95Time: 0,
-        p99Time: 0,
-        iterations: totalOperations,
-        throughput: totalOperations / (totalTime / 1000), // ops per second
-        errors,
-      };
+    await Promise.all(workers);
+    const endTime = performance.now();
+    const totalTime = endTime - startTime;
+    const averageTime = totals.operations === 0 ? 0 : totalTime / totals.operations;
 
-      this.logger.info('Connection pool benchmark completed', {
-        name: config.name,
-        throughput: result.throughput,
-        errors,
-      });
+    const result: BenchmarkResult = {
+      name: config.name,
+      totalTime,
+      averageTime,
+      medianTime: averageTime, // Simplified
+      minTime: 0, // Would need to track individual times
+      maxTime: 0,
+      p95Time: 0,
+      p99Time: 0,
+      iterations: totals.operations,
+      throughput: totalTime === 0 ? 0 : totals.operations / (totalTime / 1000), // ops per second
+      errors: totals.errors,
+    };
 
-      return result;
+    this.logger.info('Connection pool benchmark completed', {
+      name: config.name,
+      throughput: result.throughput,
+      errors: totals.errors,
     });
+
+    return result;
+  }
+
+  private async runConnectionPoolWorker(
+    database: PostgresTestDB | MongoDBTestDB,
+    operationsPerConnection: number,
+    connectionIndex: number,
+    totals: { operations: number; errors: number }
+  ): Promise<void> {
+    try {
+      for (let index = 0; index < operationsPerConnection; index++) {
+        await this.executeBenchmarkQuery(database, { name: 'noop', query: 'SELECT 1' });
+        totals.operations++;
+      }
+    } catch (error) {
+      totals.errors++;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.warn('Connection pool operation failed', {
+        connection: connectionIndex,
+        error: errorMessage,
+      });
+    }
   }
 
   /**
    * Run load test scenario
    */
-  public async runLoadTest(
+  public runLoadTest(
     database: PostgresTestDB | MongoDBTestDB,
     scenario: LoadTestScenario
-  ): Promise<{
-    scenario: string;
-    duration: number;
-    totalOperations: number;
-    throughput: number;
-    latency: {
-      average: number;
-      p95: number;
-      p99: number;
-    };
-    errors: number;
-    metrics: Record<string, number[]>;
-  }> {
-    return withSpan('load.test.run', async () => {
-      const dbType = database instanceof PostgresTestDB ? 'PostgreSQL' : 'MongoDB';
-      this.logger.info('Starting load test', { scenario: scenario.name, database: dbType });
+  ): Promise<LoadTestResult> {
+    return withSpan('load.test.run', () => this.runLoadTestInternal(database, scenario));
+  }
 
-      const durationMs = this.parseDuration(scenario.duration);
-      const endTime = Date.now() + durationMs;
+  private async runLoadTestInternal(
+    database: PostgresTestDB | MongoDBTestDB,
+    scenario: LoadTestScenario
+  ): Promise<LoadTestResult> {
+    const databaseType = database instanceof PostgresTestDB ? 'PostgreSQL' : 'MongoDB';
+    this.logger.info('Starting load test', { scenario: scenario.name, database: databaseType });
 
-      let totalOperations = 0;
-      let errors = 0;
-      const latencies: number[] = [];
-      const metrics: Record<string, number[]> = {};
+    const durationMs = this.parseDuration(scenario.duration);
+    const endTime = Date.now() + durationMs;
 
-      // Calculate operation weights
-      const totalWeight = scenario.operations.reduce((sum, op) => sum + op.weight, 0);
-      const operations = scenario.operations.map((op) => ({
-        ...op,
-        probability: op.weight / totalWeight,
-      }));
+    const counters = { operations: 0, errors: 0 };
+    const latencies: number[] = [];
+    const metrics: Record<string, number[]> = {};
 
-      // Run concurrent operations
-      const workers = Array.from({ length: scenario.concurrency }, async () => {
-        while (Date.now() < endTime) {
-          try {
-            const selected = this.selectWeightedOperation(operations);
-            const startTime = performance.now();
+    const operations = this.calculateWeightedOperations(scenario.operations);
+    const workers = Array.from({ length: scenario.concurrency }, () =>
+      this.runLoadTestWorker(endTime, operations, latencies, metrics, counters)
+    );
 
-            await selected.operation();
+    await Promise.all(workers);
 
-            const latency = performance.now() - startTime;
-            latencies.push(latency);
-            totalOperations++;
-
-            // Collect metrics
-            this.collectMetrics(metrics, latency);
-          } catch (_error) {
-            void _error; // Mark as intentionally unused
-            errors++;
-          }
-        }
-      });
-
-      await Promise.all(workers);
-
-      const sortedLatencies = latencies.sort((a, b) => a - b);
-      const result = {
-        scenario: scenario.name,
-        duration: durationMs,
-        totalOperations,
-        throughput: totalOperations / (durationMs / 1000),
-        latency: {
-          average: latencies.reduce((sum, lat) => sum + lat, 0) / latencies.length,
-          p95: sortedLatencies[Math.floor(sortedLatencies.length * 0.95)] || 0,
-          p99: sortedLatencies[Math.floor(sortedLatencies.length * 0.99)] || 0,
-        },
-        errors,
-        metrics,
-      };
-
-      this.logger.info('Load test completed', {
-        scenario: scenario.name,
-        throughput: result.throughput,
-        averageLatency: result.latency.average,
-        errors,
-      });
-
-      return result;
+    const result = this.buildLoadTestResult(
+      scenario.name,
+      durationMs,
+      counters,
+      latencies,
+      metrics
+    );
+    this.logger.info('Load test completed', {
+      scenario: scenario.name,
+      throughput: result.throughput,
+      averageLatency: result.latency.average,
+      errors: result.errors,
     });
+
+    return result;
+  }
+
+  private calculateWeightedOperations(
+    operations: LoadTestScenario['operations']
+  ): Array<LoadTestScenario['operations'][number] & { probability: number }> {
+    const totalWeight = operations.reduce((sum, operation) => sum + operation.weight, 0);
+    return operations.map((operation) => ({
+      ...operation,
+      probability: operation.weight / totalWeight,
+    }));
+  }
+
+  private async runLoadTestWorker(
+    endTime: number,
+    operations: Array<LoadTestScenario['operations'][number] & { probability: number }>,
+    latencies: number[],
+    metrics: Record<string, number[]>,
+    counters: { operations: number; errors: number }
+  ): Promise<void> {
+    while (Date.now() < endTime) {
+      try {
+        const selected = this.selectWeightedOperation(operations);
+        const startTime = performance.now();
+
+        await selected.operation();
+
+        const latency = performance.now() - startTime;
+        latencies.push(latency);
+        counters.operations++;
+        this.collectMetrics(metrics, latency);
+      } catch (_error) {
+        void _error;
+        counters.errors++;
+      }
+    }
+  }
+
+  private buildLoadTestResult(
+    scenario: string,
+    durationMs: number,
+    counters: { operations: number; errors: number },
+    latencies: number[],
+    metrics: Record<string, number[]>
+  ): LoadTestResult {
+    const sortedLatencies = [...latencies].sort((a, b) => a - b);
+    const totalLatency = latencies.reduce((sum, latency) => sum + latency, 0);
+    const averageLatency = latencies.length === 0 ? 0 : totalLatency / latencies.length;
+
+    return {
+      scenario,
+      duration: durationMs,
+      totalOperations: counters.operations,
+      throughput: durationMs === 0 ? 0 : counters.operations / (durationMs / 1000),
+      latency: {
+        average: averageLatency,
+        p95: sortedLatencies[Math.floor(sortedLatencies.length * 0.95)] ?? 0,
+        p99: sortedLatencies[Math.floor(sortedLatencies.length * 0.99)] ?? 0,
+      },
+      errors: counters.errors,
+      metrics,
+    };
   }
 
   /**
@@ -294,7 +340,7 @@ export class DatabaseBenchmarkSuite {
   public async profileMemoryUsage(
     database: PostgresTestDB | MongoDBTestDB,
     operation: () => Promise<void>,
-    iterations: number = 100
+    iterations = 100
   ): Promise<{
     memoryUsage: Array<{
       before: NodeJS.MemoryUsage;
@@ -307,8 +353,8 @@ export class DatabaseBenchmarkSuite {
       heapTotal: number;
     };
   }> {
-    const dbType = database instanceof PostgresTestDB ? 'PostgreSQL' : 'MongoDB';
-    this.logger.info('Profiling memory usage', { database: dbType, iterations });
+    const databaseType = database instanceof PostgresTestDB ? 'PostgreSQL' : 'MongoDB';
+    this.logger.info('Profiling memory usage', { database: databaseType, iterations });
 
     const memoryUsage: Array<{
       before: NodeJS.MemoryUsage;
@@ -316,12 +362,12 @@ export class DatabaseBenchmarkSuite {
       operation: number;
     }> = [];
 
-    for (let i = 0; i < iterations; i++) {
+    for (let index = 0; index < iterations; index++) {
       const before = process.memoryUsage();
       await operation();
       const after = process.memoryUsage();
 
-      memoryUsage.push({ before, after, operation: i });
+      memoryUsage.push({ before, after, operation: index });
     }
 
     const deltas = memoryUsage.map((usage) => ({
@@ -374,30 +420,22 @@ export class DatabaseBenchmarkSuite {
     database: PostgresTestDB | MongoDBTestDB,
     benchmark: QueryBenchmark
   ): Promise<BenchmarkResult> {
-    const iterations = benchmark.iterations || 100;
-    const warmupIterations = benchmark.warmupIterations || 10;
+    const iterations = benchmark.iterations ?? 100;
+    const warmupIterations = benchmark.warmupIterations ?? 10;
     const times: number[] = [];
 
     // Warmup
-    for (let i = 0; i < warmupIterations; i++) {
-      if (database instanceof PostgresTestDB) {
-        await database.query(benchmark.query, benchmark.parameters);
-      } else {
-        await database.execute(benchmark.query, benchmark.parameters);
-      }
+    for (let index = 0; index < warmupIterations; index++) {
+      await this.executeBenchmarkQuery(database, benchmark);
     }
 
     // Benchmark
     let errors = 0;
-    for (let i = 0; i < iterations; i++) {
+    for (let index = 0; index < iterations; index++) {
       try {
         const startTime = performance.now();
 
-        if (database instanceof PostgresTestDB) {
-          await database.query(benchmark.query, benchmark.parameters);
-        } else {
-          await database.execute(benchmark.query, benchmark.parameters);
-        }
+        await this.executeBenchmarkQuery(database, benchmark);
 
         const endTime = performance.now();
         times.push(endTime - startTime);
@@ -416,11 +454,11 @@ export class DatabaseBenchmarkSuite {
       name: benchmark.name,
       totalTime,
       averageTime,
-      medianTime: sortedTimes[Math.floor(sortedTimes.length / 2)] || 0,
-      minTime: sortedTimes[0] || 0,
-      maxTime: sortedTimes[sortedTimes.length - 1] || 0,
-      p95Time: sortedTimes[Math.floor(sortedTimes.length * 0.95)] || 0,
-      p99Time: sortedTimes[Math.floor(sortedTimes.length * 0.99)] || 0,
+      medianTime: sortedTimes[Math.floor(sortedTimes.length / 2)] ?? 0,
+      minTime: sortedTimes[0] ?? 0,
+      maxTime: sortedTimes[sortedTimes.length - 1] ?? 0,
+      p95Time: sortedTimes[Math.floor(sortedTimes.length * 0.95)] ?? 0,
+      p99Time: sortedTimes[Math.floor(sortedTimes.length * 0.99)] ?? 0,
       iterations: times.length,
       throughput,
       memoryUsage: process.memoryUsage(),
@@ -428,15 +466,26 @@ export class DatabaseBenchmarkSuite {
     };
   }
 
+  private async executeBenchmarkQuery(
+    database: PostgresTestDB | MongoDBTestDB,
+    benchmark: QueryBenchmark
+  ): Promise<void> {
+    if (database instanceof PostgresTestDB) {
+      await database.query(benchmark.query, benchmark.parameters);
+      return;
+    }
+    await database.execute(benchmark.query, benchmark.parameters);
+  }
+
   private async runTransactionBenchmark(
     database: PostgresTestDB | MongoDBTestDB,
     benchmark: { name: string; operations: Array<() => Promise<void>>; iterations?: number }
   ): Promise<BenchmarkResult> {
-    const iterations = benchmark.iterations || 50;
+    const iterations = benchmark.iterations ?? 50;
     const times: number[] = [];
     let errors = 0;
 
-    for (let i = 0; i < iterations; i++) {
+    for (let index = 0; index < iterations; index++) {
       try {
         const startTime = performance.now();
 
@@ -475,11 +524,11 @@ export class DatabaseBenchmarkSuite {
       name: benchmark.name,
       totalTime,
       averageTime,
-      medianTime: sortedTimes[Math.floor(sortedTimes.length / 2)] || 0,
-      minTime: sortedTimes[0] || 0,
-      maxTime: sortedTimes[sortedTimes.length - 1] || 0,
-      p95Time: sortedTimes[Math.floor(sortedTimes.length * 0.95)] || 0,
-      p99Time: sortedTimes[Math.floor(sortedTimes.length * 0.99)] || 0,
+      medianTime: sortedTimes[Math.floor(sortedTimes.length / 2)] ?? 0,
+      minTime: sortedTimes[0] ?? 0,
+      maxTime: sortedTimes[sortedTimes.length - 1] ?? 0,
+      p95Time: sortedTimes[Math.floor(sortedTimes.length * 0.95)] ?? 0,
+      p99Time: sortedTimes[Math.floor(sortedTimes.length * 0.99)] ?? 0,
       iterations: times.length,
       throughput,
       errors,
@@ -501,14 +550,16 @@ export class DatabaseBenchmarkSuite {
       }
     }
 
-    return operations[operations.length - 1]!;
+    const fallback = operations[operations.length - 1];
+    if (fallback === undefined) {
+      throw new Error('Cannot select from empty operations array');
+    }
+    return fallback;
   }
 
   private collectMetrics(metrics: Record<string, number[]>, latency: number): void {
     // Collect latency percentiles
-    if (!metrics['latency']) {
-      metrics['latency'] = [];
-    }
+    metrics['latency'] ??= [];
     metrics['latency'].push(latency);
 
     // Collect throughput (would need time windows)
@@ -521,8 +572,11 @@ export class DatabaseBenchmarkSuite {
       throw new Error(`Invalid duration format: ${duration}`);
     }
 
-    const value = parseInt(match[1] || '0', 10);
+    const value = parseInt(match[1] ?? '0', 10);
     const unit = match[2];
+    if (!unit) {
+      throw new Error(`Invalid duration unit: ${duration}`);
+    }
 
     switch (unit) {
       case 'ms':

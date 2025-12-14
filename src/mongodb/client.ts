@@ -2,14 +2,16 @@
  * @kitium-ai/test-db - MongoDB Test Client
  */
 
-import { ClientSession, Db, MongoClient } from 'mongodb';
+import { type ClientSession, type Db, MongoClient } from 'mongodb';
 
-import { ConnectionState, IMongoDBTestDB, MongoDBConfig } from '../types/index.js';
+import type { ConnectionState, IMongoDBTestDB, MongoDBConfig } from '../types/index.js';
 import { sanitizeMongoDBConfig, validateMongoDBConfig } from '../utils/config.js';
 import { addErrorToMeta } from '../utils/errors.js';
 import { instrument } from '../utils/instrument.js';
-import { createLogger, ILogger } from '../utils/logging.js';
+import { createLogger, type ILogger } from '../utils/logging.js';
 import { withSpan } from '../utils/telemetry.js';
+
+const databaseNotConnectedError = 'Database is not connected';
 
 /**
  * MongoDB Test Database Client
@@ -51,8 +53,8 @@ export class MongoDBTestDB implements IMongoDBTestDB {
     try {
       await instrument('MongoDBTestDB.connect', 'mongodb.connect', async () => {
         this.client = new MongoClient(this.config.uri, {
-          connectTimeoutMS: this.config.connectionTimeout || 5000,
-          serverSelectionTimeoutMS: this.config.serverSelectionTimeout || 5000,
+          connectTimeoutMS: this.config.connectionTimeout ?? 5000,
+          serverSelectionTimeoutMS: this.config.serverSelectionTimeout ?? 5000,
           maxPoolSize: 20,
           minPoolSize: 5,
         });
@@ -112,12 +114,12 @@ export class MongoDBTestDB implements IMongoDBTestDB {
   /**
    * Get a collection
    */
-  public async collection(name: string): Promise<unknown> {
+  public collection(name: string): Promise<unknown> {
     if (!this.isConnected() || !this.db) {
-      throw new Error('Database is not connected');
+      throw new Error(databaseNotConnectedError);
     }
 
-    return this.db.collection(name);
+    return Promise.resolve(this.db.collection(name));
   }
 
   /**
@@ -125,16 +127,17 @@ export class MongoDBTestDB implements IMongoDBTestDB {
    */
   public async execute(query: string, _parameters?: unknown[]): Promise<unknown> {
     if (!this.isConnected() || !this.db) {
-      throw new Error('Database is not connected');
+      throw new Error(databaseNotConnectedError);
     }
 
+    const database = this.db;
     try {
       // Parse simple query format for basic operations
       // For complex queries, use collection() method directly
       this.logger.debug('Executing query', { query });
       const result = await withSpan(
         'mongodb.query',
-        () => this.db!.collection('_query').findOne({ query }),
+        () => database.collection('_query').findOne({ query }),
         {
           query,
         }
@@ -150,9 +153,10 @@ export class MongoDBTestDB implements IMongoDBTestDB {
   /**
    * Execute a transaction
    */
+  /* eslint-disable promise/prefer-await-to-callbacks */
   public async transaction(callback: (session: ClientSession) => Promise<void>): Promise<void> {
     if (!this.isConnected() || !this.client) {
-      throw new Error('Database is not connected');
+      throw new Error(databaseNotConnectedError);
     }
 
     const session = this.client.startSession();
@@ -173,17 +177,19 @@ export class MongoDBTestDB implements IMongoDBTestDB {
       await session.endSession();
     }
   }
+  /* eslint-enable promise/prefer-await-to-callbacks */
 
   /**
    * Drop a collection
    */
   public async dropCollection(name: string): Promise<void> {
     if (!this.isConnected() || !this.db) {
-      throw new Error('Database is not connected');
+      throw new Error(databaseNotConnectedError);
     }
 
+    const database = this.db;
     try {
-      await withSpan('mongodb.collection.drop', () => this.db!.collection(name).drop(), {
+      await withSpan('mongodb.collection.drop', () => database.collection(name).drop(), {
         collection: name,
       });
       this.logger.info('Dropped collection', { collection: name });
@@ -205,11 +211,12 @@ export class MongoDBTestDB implements IMongoDBTestDB {
    */
   public async dropDatabase(): Promise<void> {
     if (!this.isConnected() || !this.db) {
-      throw new Error('Database is not connected');
+      throw new Error(databaseNotConnectedError);
     }
 
+    const database = this.db;
     try {
-      await withSpan('mongodb.database.drop', () => this.db!.dropDatabase());
+      await withSpan('mongodb.database.drop', () => database.dropDatabase());
       this.logger.info('Dropped database');
     } catch (error) {
       const error_ = error instanceof Error ? error : new Error(String(error));
@@ -230,9 +237,10 @@ export class MongoDBTestDB implements IMongoDBTestDB {
    */
   public async seed(data: Record<string, unknown>): Promise<void> {
     if (!this.isConnected() || !this.db) {
-      throw new Error('Database is not connected');
+      throw new Error(databaseNotConnectedError);
     }
 
+    const database = this.db;
     try {
       await withSpan('mongodb.seed', async () => {
         for (const [collectionName, documents] of Object.entries(data)) {
@@ -241,9 +249,9 @@ export class MongoDBTestDB implements IMongoDBTestDB {
             continue;
           }
 
-          if (documents.length > 0 && this.db) {
-            const collection = this.db.collection(collectionName);
-            await collection.insertMany(documents as Record<string, unknown>[]);
+          if (documents.length > 0) {
+            const collection = database.collection(collectionName);
+            await collection.insertMany(documents as Array<Record<string, unknown>>);
           }
         }
       });
@@ -261,7 +269,7 @@ export class MongoDBTestDB implements IMongoDBTestDB {
    */
   public getDatabase(): Db {
     if (!this.isConnected() || !this.db) {
-      throw new Error('Database is not connected');
+      throw new Error(databaseNotConnectedError);
     }
     return this.db;
   }

@@ -1,69 +1,65 @@
-import baseConfig from '@kitiumai/config/eslint.config.base.js';
-import { createKitiumConfig } from '@kitiumai/lint';
-
-export default createKitiumConfig({
+import {
   baseConfig,
-  ignorePatterns: ['dist/**', '**/*.d.ts', '**/*.d.cts', 'node_modules/**', 'prettier.config.*'],
-  additionalRules: {
-    // Disable to avoid schema mismatch across ESLint versions
-    'no-restricted-imports': 'off',
-    complexity: ['warn', 15],
-    // Disable conflicting import rules to avoid circular fixes
-    'simple-import-sort/imports': 'off',
-    'import/order': 'off',
-    // Allow callbacks for database operations
-    'promise/prefer-await-to-callbacks': 'off',
-    // Allow passing functions to array methods
-    'unicorn/no-array-callback-reference': 'off',
-    // Allow test database abbreviations
-    'unicorn/prevent-abbreviations': 'off',
-    // Allow deeper nesting in test fixtures
-    'max-depth': ['warn', 5],
-    // Allow more statements in complex functions
-    'max-statements': ['warn', 25],
+  jestConfig,
+  nodeConfig,
+  securityConfig,
+  typeScriptConfig,
+} from '@kitiumai/lint/eslint';
+
+const nodeRules = nodeConfig.find((config) => config.name === 'kitium/node') ?? nodeConfig.at(-1);
+const typeScriptRules =
+  typeScriptConfig.find((config) => config.name === 'kitium/typescript') ?? typeScriptConfig.at(-1);
+
+export default [
+  ...baseConfig,
+  nodeRules,
+  typeScriptRules,
+  {
+    name: 'test-db/typescript-project',
+    files: ['**/*.ts', '**/*.tsx'],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.eslint.json'],
+      },
+    },
   },
-  overrides: [
-    // Globally disable restricted import rule for this package
-    {
-      files: ['**/*'],
-      rules: {
-        'no-restricted-imports': 'off',
-      },
+  {
+    name: 'test-db/config-files',
+    files: ['**/*.cjs', 'eslint.config.js'],
+    rules: {
+      '@typescript-eslint/naming-convention': 'off',
+      '@typescript-eslint/no-require-imports': 'off',
     },
-    {
-      files: ['**/*.{js,cjs,mjs}'],
-      rules: {
-        '@typescript-eslint/naming-convention': 'off',
-        '@typescript-eslint/explicit-function-return-types': 'off',
-        '@typescript-eslint/no-explicit-any': 'off',
-      },
+  },
+  {
+    name: 'test-db/declaration-files',
+    files: ['**/*.d.ts'],
+    rules: {
+      'import/no-default-export': 'off',
     },
-    // CommonJS config files
-    {
-      files: ['jest.config.cjs', 'prettier.config.cjs'],
-      languageOptions: {
-        sourceType: 'script',
-        ecmaVersion: 2021,
-        globals: { module: 'readonly', require: 'readonly' },
-      },
-      rules: {
-        'no-undef': 'off',
-        '@typescript-eslint/no-require-imports': 'off',
-      },
+  },
+  securityConfig,
+  jestConfig,
+  {
+    name: 'test-db/lint-overrides',
+    rules: {
+      // Fix upstream schema incompatibility with ESLint v9+.
+      'no-restricted-imports': [
+        'warn',
+        {
+          patterns: [
+            {
+              group: ['../../*', '../../../*'],
+              message: 'Prefer module aliases over deep relative imports for maintainability.',
+            },
+          ],
+        },
+      ],
+      // Avoid circular fixes between import ordering rules.
+      'import/order': 'off',
+
+      // Too many false positives for typical helper patterns.
+      'security/detect-object-injection': 'off',
     },
-    {
-      files: ['**/*.d.ts'],
-      rules: {
-        '@typescript-eslint/naming-convention': 'off',
-        'import/no-default-export': 'off',
-      },
-    },
-    {
-      files: ['tests/**/*.{ts,tsx}'],
-      rules: {
-        'max-lines-per-function': ['warn', 300],
-        'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
-      },
-    },
-  ],
-});
+  },
+];

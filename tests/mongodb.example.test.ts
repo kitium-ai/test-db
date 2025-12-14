@@ -13,7 +13,7 @@ import {
   insertDocuments,
   updateDocuments,
 } from '../src/mongodb/index.js';
-import { MongoDBConfig } from '../src/types/index.js';
+import type { MongoDBConfig } from '../src/types/index.js';
 
 describe('MongoDB Test Database', () => {
   let databaseConfig: MongoDBConfig;

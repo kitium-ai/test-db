@@ -2,10 +2,10 @@
  * @kitium-ai/test-db - MongoDB Helper functions
  */
 
+import type { MongoDBConfig } from '../types/index.js';
+import { getMongoDBConfig } from '../utils/config.js';
 import { MongoDBTestDB } from './client.js';
 import { getCollection } from './collection.js';
-import { MongoDBConfig } from '../types/index.js';
-import { getMongoDBConfig } from '../utils/config.js';
 
 /**
  * Create a MongoDB test database instance
@@ -21,7 +21,7 @@ export function createMongoDBTestDB(config?: Partial<MongoDBConfig>): MongoDBTes
 export async function insertDocuments(
   database: MongoDBTestDB,
   collectionName: string,
-  documents: Record<string, unknown>[]
+  documents: Array<Record<string, unknown>>
 ): Promise<void> {
   const collection = await getCollection(database, collectionName);
   if (documents.length > 0) {
@@ -35,10 +35,13 @@ export async function insertDocuments(
 export async function findDocuments(
   database: MongoDBTestDB,
   collectionName: string,
-  filter?: Record<string, unknown>
+  query?: Record<string, unknown>
 ): Promise<unknown[]> {
   const collection = await getCollection(database, collectionName);
-  return collection.find(filter || {}).toArray();
+  const criteria = query ?? {};
+  // False-positive: this is `mongodb.Collection#find`, not `Array#find`.
+  // eslint-disable-next-line unicorn/no-array-callback-reference
+  return collection.find(criteria).toArray();
 }
 
 /**
@@ -84,10 +87,11 @@ export async function deleteDocuments(
 export async function countDocuments(
   database: MongoDBTestDB,
   collectionName: string,
-  filter?: Record<string, unknown>
+  query?: Record<string, unknown>
 ): Promise<number> {
   const collection = await getCollection(database, collectionName);
-  return collection.countDocuments(filter || {});
+  const criteria = query ?? {};
+  return collection.countDocuments(criteria);
 }
 
 /**
@@ -167,7 +171,7 @@ export async function teardownTestDatabase(
 export async function aggregate(
   database: MongoDBTestDB,
   collectionName: string,
-  pipeline: Record<string, unknown>[]
+  pipeline: Array<Record<string, unknown>>
 ): Promise<unknown[]> {
   const collection = await getCollection(database, collectionName);
   return collection.aggregate(pipeline as never).toArray();

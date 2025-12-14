@@ -2,15 +2,61 @@
  * Docker-based hermetic database testing utilities
  */
 
-import { execSync, spawn } from 'child_process';
-import { randomUUID } from 'crypto';
-import { promises as fs } from 'fs';
-import path from 'path';
+import { execSync, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 
 import { createLogger, type ILogger } from '../utils/logging.js';
 import { withSpan } from '../utils/telemetry.js';
 
-export interface DockerContainerConfig {
+const fileExists = async (filePath: string): Promise<boolean> => {
+  // File paths are provided by the test harness configuration.
+  // eslint-disable-next-line security/detect-non-literal-fs-filename
+  const stat = await fs.stat(filePath).catch(() => null);
+  return stat !== null;
+};
+
+const buildDockerRunArguments = (
+  config: DockerContainerConfig,
+  containerName: string
+): string[] => {
+  const args = ['run', '-d', '--name', containerName];
+
+  if (config.ports) {
+    for (const [containerPort, hostPort] of Object.entries(config.ports)) {
+      args.push('-p', `${hostPort}:${containerPort}`);
+    }
+  }
+
+  if (config.environment) {
+    for (const [key, value] of Object.entries(config.environment)) {
+      args.push('-e', `${key}=${value}`);
+    }
+  }
+
+  if (config.volumes) {
+    for (const [hostPath, containerPath] of Object.entries(config.volumes)) {
+      args.push('-v', `${hostPath}:${containerPath}`);
+    }
+  }
+
+  if (config.network) {
+    args.push('--network', config.network);
+  }
+
+  if (config.healthCheck) {
+    args.push('--health-cmd', config.healthCheck.test);
+    args.push('--health-interval', config.healthCheck.interval);
+    args.push('--health-timeout', config.healthCheck.timeout);
+    args.push('--health-retries', config.healthCheck.retries.toString());
+  }
+
+  args.push(config.image);
+  return args;
+};
+
+export type DockerContainerConfig = {
   image: string;
   name?: string;
   ports?: Record<string, number>;
@@ -23,9 +69,9 @@ export interface DockerContainerConfig {
     timeout: string;
     retries: number;
   };
-}
+};
 
-export interface HermeticDatabaseConfig {
+export type HermeticDatabaseConfig = {
   container: DockerContainerConfig;
   database: string;
   waitForReady?: {
@@ -34,11 +80,11 @@ export interface HermeticDatabaseConfig {
   };
   schemaFiles?: string[];
   seedFiles?: string[];
-}
+};
 
 export class DockerContainerManager {
   private readonly logger: ILogger;
-  private containers: Map<string, string> = new Map();
+  private readonly containers: Map<string, string> = new Map();
 
   constructor() {
     this.logger = createLogger('DockerContainerManager');
@@ -64,48 +110,11 @@ export class DockerContainerManager {
       throw new Error('Docker is not available on this system');
     }
 
-    const containerName = config.name || `test-db-${randomUUID().slice(0, 8)}`;
+    const containerName = config.name ?? `test-db-${randomUUID().slice(0, 8)}`;
+    const args = buildDockerRunArguments(config, containerName);
 
     try {
-      await withSpan('docker.container.start', async () => {
-        const args = ['run', '-d', '--name', containerName];
-
-        // Add port mappings
-        if (config.ports) {
-          for (const [containerPort, hostPort] of Object.entries(config.ports)) {
-            args.push('-p', `${hostPort}:${containerPort}`);
-          }
-        }
-
-        // Add environment variables
-        if (config.environment) {
-          for (const [key, value] of Object.entries(config.environment)) {
-            args.push('-e', `${key}=${value}`);
-          }
-        }
-
-        // Add volumes
-        if (config.volumes) {
-          for (const [hostPath, containerPath] of Object.entries(config.volumes)) {
-            args.push('-v', `${hostPath}:${containerPath}`);
-          }
-        }
-
-        // Add network
-        if (config.network) {
-          args.push('--network', config.network);
-        }
-
-        // Add health check
-        if (config.healthCheck) {
-          args.push('--health-cmd', config.healthCheck.test);
-          args.push('--health-interval', config.healthCheck.interval);
-          args.push('--health-timeout', config.healthCheck.timeout);
-          args.push('--health-retries', config.healthCheck.retries.toString());
-        }
-
-        args.push(config.image);
-
+      await withSpan('docker.container.start', () => {
         this.logger.debug('Starting Docker container', { args, containerName });
 
         const result = execSync(`docker ${args.join(' ')}`, { encoding: 'utf8' });
@@ -113,6 +122,7 @@ export class DockerContainerManager {
 
         this.containers.set(containerName, containerId);
         this.logger.info('Docker container started', { containerName, containerId });
+        return Promise.resolve();
       });
 
       return containerName;
@@ -131,12 +141,13 @@ export class DockerContainerManager {
    */
   public async stopContainer(containerName: string): Promise<void> {
     try {
-      await withSpan('docker.container.stop', async () => {
+      await withSpan('docker.container.stop', () => {
         execSync(`docker stop ${containerName}`, { stdio: 'ignore' });
         execSync(`docker rm ${containerName}`, { stdio: 'ignore' });
 
         this.containers.delete(containerName);
         this.logger.info('Docker container stopped and removed', { containerName });
+        return Promise.resolve();
       });
     } catch (error) {
       const error_ = error instanceof Error ? error : new Error(String(error));
@@ -151,7 +162,7 @@ export class DockerContainerManager {
   /**
    * Wait for container to be healthy
    */
-  public async waitForHealthy(containerName: string, timeoutMs: number = 30000): Promise<void> {
+  public async waitForHealthy(containerName: string, timeoutMs = 30000): Promise<void> {
     const startTime = Date.now();
 
     while (Date.now() - startTime < timeoutMs) {
@@ -171,7 +182,9 @@ export class DockerContainerManager {
         // Container might not have health check or is still starting
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 1000);
+      });
     }
 
     throw new Error(`Container ${containerName} did not become healthy within ${timeoutMs}ms`);
@@ -180,10 +193,10 @@ export class DockerContainerManager {
   /**
    * Execute command in container
    */
-  public async execInContainer(containerName: string, command: string): Promise<string> {
+  public execInContainer(containerName: string, command: string): Promise<string> {
     try {
       const result = execSync(`docker exec ${containerName} ${command}`, { encoding: 'utf8' });
-      return result.trim();
+      return Promise.resolve(result.trim());
     } catch (error) {
       const error_ = error instanceof Error ? error : new Error(String(error));
       this.logger.error('Failed to execute command in container', {
@@ -198,7 +211,7 @@ export class DockerContainerManager {
   /**
    * Copy file to container
    */
-  public async copyToContainer(
+  public copyToContainer(
     containerName: string,
     hostPath: string,
     containerPath: string
@@ -206,6 +219,7 @@ export class DockerContainerManager {
     try {
       execSync(`docker cp "${hostPath}" "${containerName}:${containerPath}"`, { stdio: 'ignore' });
       this.logger.debug('File copied to container', { containerName, hostPath, containerPath });
+      return Promise.resolve();
     } catch (error) {
       const error_ = error instanceof Error ? error : new Error(String(error));
       this.logger.error('Failed to copy file to container', {
@@ -221,7 +235,7 @@ export class DockerContainerManager {
   /**
    * Copy file from container
    */
-  public async copyFromContainer(
+  public copyFromContainer(
     containerName: string,
     containerPath: string,
     hostPath: string
@@ -229,6 +243,7 @@ export class DockerContainerManager {
     try {
       execSync(`docker cp "${containerName}:${containerPath}" "${hostPath}"`, { stdio: 'ignore' });
       this.logger.debug('File copied from container', { containerName, containerPath, hostPath });
+      return Promise.resolve();
     } catch (error) {
       const error_ = error instanceof Error ? error : new Error(String(error));
       this.logger.error('Failed to copy file from container', {
@@ -258,13 +273,18 @@ export class DockerContainerManager {
    * Clean up all managed containers
    */
   public async cleanup(): Promise<void> {
-    const promises = Array.from(this.containers.keys()).map((containerName) =>
-      this.stopContainer(containerName).catch((error) => {
-        this.logger.warn('Failed to cleanup container', { containerName, error: error.message });
-      })
+    const containerNames = Array.from(this.containers.keys());
+    const results = await Promise.allSettled(
+      containerNames.map((containerName) => this.stopContainer(containerName))
     );
-
-    await Promise.all(promises);
+    for (const [index, result] of results.entries()) {
+      if (result.status === 'rejected') {
+        this.logger.warn('Failed to cleanup container', {
+          containerName: containerNames[index],
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+        });
+      }
+    }
     this.containers.clear();
   }
 }
@@ -281,6 +301,101 @@ export class HermeticDatabaseManager {
     void path; // Mark as available but not yet used
   }
 
+  private async waitForDatabaseReady(
+    config: HermeticDatabaseConfig,
+    containerName: string
+  ): Promise<void> {
+    if (config.waitForReady) {
+      await this.containerManager.waitForHealthy(containerName, config.waitForReady.timeout);
+      const isReady = await config.waitForReady.healthCheck();
+      if (!isReady) {
+        throw new Error('Database health check failed');
+      }
+      return;
+    }
+
+    await this.containerManager.waitForHealthy(containerName);
+  }
+
+  private buildPostgresContainerConfig(config: HermeticDatabaseConfig): DockerContainerConfig {
+    return {
+      ...config.container,
+      image: config.container.image ?? 'postgres:15-alpine',
+      environment: {
+        POSTGRES_DB: config.database,
+        POSTGRES_USER: 'testuser',
+        POSTGRES_PASSWORD: 'testpass',
+        ...config.container.environment,
+      },
+      ports: {
+        /* eslint-disable @typescript-eslint/naming-convention */
+        '5432': 5432,
+        /* eslint-enable @typescript-eslint/naming-convention */
+        ...config.container.ports,
+      },
+    };
+  }
+
+  private buildMongoContainerConfig(config: HermeticDatabaseConfig): DockerContainerConfig {
+    return {
+      ...config.container,
+      image: config.container.image ?? 'mongo:7-jammy',
+      environment: {
+        MONGO_INITDB_DATABASE: config.database,
+        ...config.container.environment,
+      },
+      ports: {
+        /* eslint-disable @typescript-eslint/naming-convention */
+        '27017': 27017,
+        /* eslint-enable @typescript-eslint/naming-convention */
+        ...config.container.ports,
+      },
+    };
+  }
+
+  private async applyPostgresSqlFiles(
+    containerName: string,
+    database: string,
+    files: string[] | undefined,
+    destination: string
+  ): Promise<void> {
+    if (!files) {
+      return;
+    }
+
+    for (const file of files) {
+      if (!(await fileExists(file))) {
+        continue;
+      }
+      await this.containerManager.copyToContainer(containerName, file, destination);
+      await this.containerManager.execInContainer(
+        containerName,
+        `psql -U testuser -d ${database} -f ${destination}`
+      );
+    }
+  }
+
+  private async applyMongoSeedFiles(
+    containerName: string,
+    database: string,
+    files: string[] | undefined
+  ): Promise<void> {
+    if (!files) {
+      return;
+    }
+
+    for (const file of files) {
+      if (!(await fileExists(file))) {
+        continue;
+      }
+      await this.containerManager.copyToContainer(containerName, file, '/tmp/seed.js');
+      await this.containerManager.execInContainer(
+        containerName,
+        `mongosh ${database} /tmp/seed.js`
+      );
+    }
+  }
+
   /**
    * Create a hermetic PostgreSQL database
    */
@@ -295,62 +410,22 @@ export class HermeticDatabaseManager {
     };
   }> {
     this.logger.info('Creating hermetic PostgreSQL database', { database: config.database });
-    const containerName = await this.containerManager.startContainer({
-      ...config.container,
-      image: config.container.image || 'postgres:15-alpine',
-      environment: {
-        /* eslint-disable @typescript-eslint/naming-convention */
-        POSTGRES_DB: config.database,
-        POSTGRES_USER: 'testuser',
-        POSTGRES_PASSWORD: 'testpass',
-        /* eslint-enable @typescript-eslint/naming-convention */
-        ...config.container.environment,
-      },
-      ports: {
-        /* eslint-disable @typescript-eslint/naming-convention */
-        '5432': 5432,
-        /* eslint-enable @typescript-eslint/naming-convention */
-        ...config.container.ports,
-      },
-    });
-
-    // Wait for database to be ready
-    if (config.waitForReady) {
-      await this.containerManager.waitForHealthy(containerName, config.waitForReady.timeout);
-      const isReady = await config.waitForReady.healthCheck();
-      if (!isReady) {
-        throw new Error('Database health check failed');
-      }
-    } else {
-      // Default PostgreSQL health check
-      await this.containerManager.waitForHealthy(containerName);
-    }
-
-    // Apply schema files if provided
-    if (config.schemaFiles) {
-      for (const schemaFile of config.schemaFiles) {
-        if (await fs.stat(schemaFile).catch(() => false)) {
-          await this.containerManager.copyToContainer(containerName, schemaFile, '/tmp/schema.sql');
-          await this.containerManager.execInContainer(
-            containerName,
-            'psql -U testuser -d ' + config.database + ' -f /tmp/schema.sql'
-          );
-        }
-      }
-    }
-
-    // Apply seed files if provided
-    if (config.seedFiles) {
-      for (const seedFile of config.seedFiles) {
-        if (await fs.stat(seedFile).catch(() => false)) {
-          await this.containerManager.copyToContainer(containerName, seedFile, '/tmp/seed.sql');
-          await this.containerManager.execInContainer(
-            containerName,
-            'psql -U testuser -d ' + config.database + ' -f /tmp/seed.sql'
-          );
-        }
-      }
-    }
+    const containerName = await this.containerManager.startContainer(
+      this.buildPostgresContainerConfig(config)
+    );
+    await this.waitForDatabaseReady(config, containerName);
+    await this.applyPostgresSqlFiles(
+      containerName,
+      config.database,
+      config.schemaFiles,
+      '/tmp/schema.sql'
+    );
+    await this.applyPostgresSqlFiles(
+      containerName,
+      config.database,
+      config.seedFiles,
+      '/tmp/seed.sql'
+    );
 
     return {
       containerName,
@@ -374,47 +449,11 @@ export class HermeticDatabaseManager {
       database: string;
     };
   }> {
-    const containerName = await this.containerManager.startContainer({
-      ...config.container,
-      image: config.container.image || 'mongo:7-jammy',
-      environment: {
-        /* eslint-disable @typescript-eslint/naming-convention */
-        MONGO_INITDB_DATABASE: config.database,
-        /* eslint-enable @typescript-eslint/naming-convention */
-        ...config.container.environment,
-      },
-      ports: {
-        /* eslint-disable @typescript-eslint/naming-convention */
-        '27017': 27017,
-        /* eslint-enable @typescript-eslint/naming-convention */
-        ...config.container.ports,
-      },
-    });
-
-    // Wait for database to be ready
-    if (config.waitForReady) {
-      await this.containerManager.waitForHealthy(containerName, config.waitForReady.timeout);
-      const isReady = await config.waitForReady.healthCheck();
-      if (!isReady) {
-        throw new Error('Database health check failed');
-      }
-    } else {
-      // Default MongoDB health check
-      await this.containerManager.waitForHealthy(containerName);
-    }
-
-    // Apply seed files if provided (assuming JavaScript files for MongoDB)
-    if (config.seedFiles) {
-      for (const seedFile of config.seedFiles) {
-        if (await fs.stat(seedFile).catch(() => false)) {
-          await this.containerManager.copyToContainer(containerName, seedFile, '/tmp/seed.js');
-          await this.containerManager.execInContainer(
-            containerName,
-            'mongosh ' + config.database + ' /tmp/seed.js'
-          );
-        }
-      }
-    }
+    const containerName = await this.containerManager.startContainer(
+      this.buildMongoContainerConfig(config)
+    );
+    await this.waitForDatabaseReady(config, containerName);
+    await this.applyMongoSeedFiles(containerName, config.database, config.seedFiles);
 
     return {
       containerName,

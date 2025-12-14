@@ -4,7 +4,7 @@ import { createLogger } from './logging.js';
 
 const logger = createLogger('TestDB:Telemetry');
 
-interface TelemetryApi {
+type TelemetryApi = {
   trace: {
     getTracer: (name: string) => {
       startSpan: (name: string, options?: { attributes?: Record<string, unknown> }) => Span;
@@ -12,16 +12,16 @@ interface TelemetryApi {
   };
   context: { active: () => unknown; with: (context: unknown, function_: () => unknown) => unknown };
   // traceContext: unknown; // Removed as it's not in the API and caused a type error
-  // eslint-disable-next-line @typescript-eslint/naming-convention
-  SpanStatusCode?: { ERROR: number };
-}
 
-interface Span {
+  SpanStatusCode?: { ERROR: number };
+};
+
+type Span = {
   setAttribute?: (key: string, value: unknown) => void;
   recordException?: (error: unknown) => void;
   setStatus?: (status: { code: number; message?: string }) => void;
   end?: () => void;
-}
+};
 
 const loadTelemetryApi = async (): Promise<TelemetryApi | null> => {
   try {
@@ -33,37 +33,35 @@ const loadTelemetryApi = async (): Promise<TelemetryApi | null> => {
   }
 };
 
-export async function withSpan<T>(
+async function runNoopSpan<T>(
+  name: string,
+  function_: () => Promise<T>,
+  start: number,
+  attributes?: Record<string, unknown>
+): Promise<T> {
+  try {
+    const result = await function_();
+    const durationMs = performance.now() - start;
+    logger.debug('Operation completed (no-op span)', { name, durationMs, attributes });
+    return result;
+  } catch (error) {
+    const durationMs = performance.now() - start;
+    logger.error('Operation failed (no-op span)', { name, durationMs, attributes }, error as Error);
+    throw error;
+  }
+}
+
+async function runTelemetrySpan<T>(
+  telemetry: TelemetryApi,
   name: string,
   function_: () => Promise<T>,
   attributes?: Record<string, unknown>
 ): Promise<T> {
-  const telemetry = await loadTelemetryApi();
-  const start = performance.now();
-
-  if (!telemetry) {
-    try {
-      const result = await function_();
-      const durationMs = performance.now() - start;
-      logger.debug('Operation completed (no-op span)', { name, durationMs, attributes });
-      return result;
-    } catch (error) {
-      const durationMs = performance.now() - start;
-      logger.error(
-        'Operation failed (no-op span)',
-        { name, durationMs, attributes },
-        error as Error
-      );
-      throw error;
-    }
-  }
-
   const tracer = telemetry.trace.getTracer('@kitium-ai/test-db');
   const span: Span = tracer.startSpan(name, attributes ? { attributes } : undefined);
 
   try {
-    const result = (await telemetry.context.with(telemetry.context.active(), function_)) as T;
-    return result;
+    return (await telemetry.context.with(telemetry.context.active(), function_)) as T;
   } catch (error) {
     span.recordException?.(error);
     const errorCode = telemetry.SpanStatusCode?.ERROR ?? 2;
@@ -72,4 +70,19 @@ export async function withSpan<T>(
   } finally {
     span.end?.();
   }
+}
+
+export async function withSpan<T>(
+  name: string,
+  function_: () => Promise<T>,
+  attributes?: Record<string, unknown>
+): Promise<T> {
+  const telemetry = await loadTelemetryApi();
+  const start = performance.now();
+
+  if (telemetry === null) {
+    return runNoopSpan(name, function_, start, attributes);
+  }
+
+  return runTelemetrySpan(telemetry, name, function_, attributes);
 }

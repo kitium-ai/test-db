@@ -2,38 +2,45 @@
  * Multi-database transaction coordination utilities
  */
 
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
 
 import { MongoDBTestDB } from '../mongodb/client.js';
 import { PostgresTestDB } from '../postgres/client.js';
 import { createLogger, type ILogger } from './logging.js';
 import { withSpan } from './telemetry.js';
 
-export interface DatabaseOperation {
+export type DatabaseOperation = {
   database: PostgresTestDB | MongoDBTestDB;
   operation: (client: unknown) => Promise<void>;
   description?: string;
-}
+};
 
-export interface TransactionConfig {
+export type TransactionConfig = {
   isolation: 'read_uncommitted' | 'read_committed' | 'repeatable_read' | 'serializable';
   timeout?: number;
   retryAttempts?: number;
   retryDelay?: number;
-}
+};
 
-export interface CoordinationResult {
+export type CoordinationResult = {
   success: boolean;
   transactionId: string;
   duration: number;
   committed: string[];
   rolledBack: string[];
   errors: Array<{ database: string; error: string }>;
-}
+};
+
+type PreparedTransaction = {
+  database: PostgresTestDB | MongoDBTestDB;
+  client: unknown;
+  operation: DatabaseOperation;
+};
 
 export class MultiDatabaseCoordinator {
   private readonly logger: ILogger;
-  private activeTransactions: Map<string, { databases: string[]; startTime: number }> = new Map();
+  private readonly activeTransactions: Map<string, { databases: string[]; startTime: number }> =
+    new Map();
 
   constructor() {
     this.logger = createLogger('MultiDatabaseCoordinator');
@@ -49,79 +56,12 @@ export class MultiDatabaseCoordinator {
     const transactionId = randomUUID();
     const startTime = Date.now();
 
-    const result: CoordinationResult = {
-      success: true,
-      transactionId,
-      duration: 0,
-      committed: [],
-      rolledBack: [],
-      errors: [],
-    };
+    const result = this.createInitialResult(transactionId);
 
     try {
-      await withSpan('multi-db.transaction.coordinated', async () => {
-        this.logger.info('Starting coordinated transaction', {
-          transactionId,
-          operationCount: operations.length,
-        });
-
-        this.activeTransactions.set(transactionId, {
-          databases: operations.map((op) => this.getDatabaseId(op.database)),
-          startTime,
-        });
-
-        // Phase 1: Prepare all transactions
-        const preparedTransactions: Array<{
-          database: PostgresTestDB | MongoDBTestDB;
-          client: unknown;
-          operation: DatabaseOperation;
-        }> = [];
-
-        for (const operation of operations) {
-          try {
-            const client = await this.beginTransaction(operation.database, config);
-            preparedTransactions.push({ database: operation.database, client, operation });
-          } catch (error) {
-            const error_ = error instanceof Error ? error : new Error(String(error));
-            result.errors.push({
-              database: this.getDatabaseId(operation.database),
-              error: error_.message,
-            });
-            result.success = false;
-          }
-        }
-
-        if (!result.success) {
-          // Rollback all prepared transactions
-          await this.rollbackAll(preparedTransactions, result);
-          return result;
-        }
-
-        // Phase 2: Execute operations
-        for (const { client, operation } of preparedTransactions) {
-          try {
-            await operation.operation(client);
-            result.committed.push(this.getDatabaseId(operation.database));
-          } catch (error) {
-            const error_ = error instanceof Error ? error : new Error(String(error));
-            result.errors.push({
-              database: this.getDatabaseId(operation.database),
-              error: error_.message,
-            });
-            result.success = false;
-            break;
-          }
-        }
-
-        // Phase 3: Commit or rollback
-        if (result.success) {
-          await this.commitAll(preparedTransactions, result);
-        } else {
-          await this.rollbackAll(preparedTransactions, result);
-        }
-
-        return result;
-      });
+      await withSpan('multi-db.transaction.coordinated', () =>
+        this.runCoordinatedTransaction(operations, config, transactionId, startTime, result)
+      );
 
       result.duration = Date.now() - startTime;
       this.logger.info('Coordinated transaction completed', {
@@ -143,6 +83,103 @@ export class MultiDatabaseCoordinator {
     return result;
   }
 
+  private createInitialResult(transactionId: string): CoordinationResult {
+    return {
+      success: true,
+      transactionId,
+      duration: 0,
+      committed: [],
+      rolledBack: [],
+      errors: [],
+    };
+  }
+
+  private async runCoordinatedTransaction(
+    operations: DatabaseOperation[],
+    config: TransactionConfig,
+    transactionId: string,
+    startTime: number,
+    result: CoordinationResult
+  ): Promise<void> {
+    this.logger.info('Starting coordinated transaction', {
+      transactionId,
+      operationCount: operations.length,
+    });
+
+    this.activeTransactions.set(transactionId, {
+      databases: operations.map((operation) => this.getDatabaseId(operation.database)),
+      startTime,
+    });
+
+    const preparedTransactions = await this.prepareCoordinatedTransactions(
+      operations,
+      config,
+      result
+    );
+    await this.executePreparedTransactions(preparedTransactions, result);
+    await this.finalizePreparedTransactions(preparedTransactions, result);
+  }
+
+  private async prepareCoordinatedTransactions(
+    operations: DatabaseOperation[],
+    config: TransactionConfig,
+    result: CoordinationResult
+  ): Promise<PreparedTransaction[]> {
+    const preparedTransactions: PreparedTransaction[] = [];
+
+    for (const operation of operations) {
+      try {
+        const client = await this.beginTransaction(operation.database, config);
+        preparedTransactions.push({ database: operation.database, client, operation });
+      } catch (error) {
+        const error_ = error instanceof Error ? error : new Error(String(error));
+        result.errors.push({
+          database: this.getDatabaseId(operation.database),
+          error: error_.message,
+        });
+        result.success = false;
+      }
+    }
+
+    return preparedTransactions;
+  }
+
+  private async executePreparedTransactions(
+    preparedTransactions: PreparedTransaction[],
+    result: CoordinationResult
+  ): Promise<void> {
+    if (!result.success) {
+      return;
+    }
+
+    for (const { client, operation } of preparedTransactions) {
+      try {
+        await operation.operation(client);
+        result.committed.push(this.getDatabaseId(operation.database));
+      } catch (error) {
+        const error_ = error instanceof Error ? error : new Error(String(error));
+        result.errors.push({
+          database: this.getDatabaseId(operation.database),
+          error: error_.message,
+        });
+        result.success = false;
+        return;
+      }
+    }
+  }
+
+  private async finalizePreparedTransactions(
+    preparedTransactions: PreparedTransaction[],
+    result: CoordinationResult
+  ): Promise<void> {
+    if (result.success) {
+      await this.commitAll(preparedTransactions, result);
+      return;
+    }
+
+    await this.rollbackAll(preparedTransactions, result);
+  }
+
   /**
    * Execute saga pattern for long-running multi-database operations
    */
@@ -153,49 +190,12 @@ export class MultiDatabaseCoordinator {
     const transactionId = randomUUID();
     const startTime = Date.now();
 
-    const result: CoordinationResult = {
-      success: true,
-      transactionId,
-      duration: 0,
-      committed: [],
-      rolledBack: [],
-      errors: [],
-    };
+    const result = this.createInitialResult(transactionId);
 
     try {
-      await withSpan('multi-db.transaction.saga', async () => {
-        this.logger.info('Starting saga transaction', {
-          transactionId,
-          operationCount: operations.length,
-        });
-
-        const completedOperations: DatabaseOperation[] = [];
-
-        // Execute operations sequentially with compensation readiness
-        for (let i = 0; i < operations.length; i++) {
-          const operation = operations[i];
-          if (!operation) {
-            continue;
-          }
-
-          try {
-            await operation.operation(operation.database);
-            result.committed.push(this.getDatabaseId(operation.database));
-            completedOperations.push(operation);
-          } catch (error) {
-            const error_ = error instanceof Error ? error : new Error(String(error));
-            result.errors.push({
-              database: this.getDatabaseId(operation.database),
-              error: error_.message,
-            });
-            result.success = false;
-
-            // Execute compensations for completed operations
-            await this.executeCompensations(completedOperations, compensations, result);
-            break;
-          }
-        }
-      });
+      await withSpan('multi-db.transaction.saga', () =>
+        this.runSagaTransaction(operations, compensations, transactionId, result)
+      );
 
       result.duration = Date.now() - startTime;
       this.logger.info('Saga transaction completed', {
@@ -213,51 +213,66 @@ export class MultiDatabaseCoordinator {
     return result;
   }
 
+  private async runSagaTransaction(
+    operations: DatabaseOperation[],
+    compensations: Array<(database: PostgresTestDB | MongoDBTestDB) => Promise<void>>,
+    transactionId: string,
+    result: CoordinationResult
+  ): Promise<void> {
+    this.logger.info('Starting saga transaction', {
+      transactionId,
+      operationCount: operations.length,
+    });
+
+    const completedOperations: DatabaseOperation[] = [];
+    await this.executeSagaOperations(operations, compensations, completedOperations, result);
+  }
+
+  private async executeSagaOperations(
+    operations: DatabaseOperation[],
+    compensations: Array<(database: PostgresTestDB | MongoDBTestDB) => Promise<void>>,
+    completedOperations: DatabaseOperation[],
+    result: CoordinationResult
+  ): Promise<void> {
+    for (const operation of operations) {
+      try {
+        await operation.operation(operation.database);
+        result.committed.push(this.getDatabaseId(operation.database));
+        completedOperations.push(operation);
+      } catch (error) {
+        const error_ = error instanceof Error ? error : new Error(String(error));
+        result.errors.push({
+          database: this.getDatabaseId(operation.database),
+          error: error_.message,
+        });
+        result.success = false;
+        await this.executeCompensations(completedOperations, compensations, result);
+        return;
+      }
+    }
+  }
+
   /**
    * Execute operations with eventual consistency (BASE transactions)
    */
   public async executeEventuallyConsistent(
     operations: DatabaseOperation[],
-    consistencyTimeout: number = 30000
+    consistencyTimeout = 30000
   ): Promise<CoordinationResult> {
     const transactionId = randomUUID();
     const startTime = Date.now();
 
-    const result: CoordinationResult = {
-      success: true,
-      transactionId,
-      duration: 0,
-      committed: [],
-      rolledBack: [],
-      errors: [],
-    };
+    const result = this.createInitialResult(transactionId);
 
     try {
-      await withSpan('multi-db.transaction.eventual', async () => {
-        this.logger.info('Starting eventual consistency transaction', { transactionId });
-
-        // Execute all operations concurrently
-        const promises = operations.map(async (operation) => {
-          try {
-            await operation.operation(operation.database);
-            result.committed.push(this.getDatabaseId(operation.database));
-          } catch (error) {
-            const error_ = error instanceof Error ? error : new Error(String(error));
-            result.errors.push({
-              database: this.getDatabaseId(operation.database),
-              error: error_.message,
-            });
-            result.success = false;
-          }
-        });
-
-        // Wait for all operations with timeout
-        const timeoutPromise = new Promise<void>((resolve) => {
-          setTimeout(() => resolve(), consistencyTimeout);
-        });
-
-        await Promise.race([Promise.all(promises), timeoutPromise]);
-      });
+      await withSpan('multi-db.transaction.eventual', () =>
+        this.runEventuallyConsistentTransaction(
+          operations,
+          consistencyTimeout,
+          transactionId,
+          result
+        )
+      );
 
       result.duration = Date.now() - startTime;
       this.logger.info('Eventual consistency transaction completed', {
@@ -276,6 +291,52 @@ export class MultiDatabaseCoordinator {
     }
 
     return result;
+  }
+
+  private async runEventuallyConsistentTransaction(
+    operations: DatabaseOperation[],
+    consistencyTimeout: number,
+    transactionId: string,
+    result: CoordinationResult
+  ): Promise<void> {
+    this.logger.info('Starting eventual consistency transaction', { transactionId });
+    const operationPromise = this.runEventuallyConsistentOperations(operations, result);
+    await this.waitForConsistency(operationPromise, consistencyTimeout);
+  }
+
+  private async runEventuallyConsistentOperations(
+    operations: DatabaseOperation[],
+    result: CoordinationResult
+  ): Promise<void> {
+    const results = await Promise.allSettled(
+      operations.map(async (operation) => {
+        await operation.operation(operation.database);
+        return this.getDatabaseId(operation.database);
+      })
+    );
+
+    for (const result_ of results) {
+      if (result_.status === 'fulfilled') {
+        result.committed.push(result_.value);
+        continue;
+      }
+
+      const error =
+        result_.reason instanceof Error ? result_.reason : new Error(String(result_.reason));
+      result.errors.push({ database: 'eventual', error: error.message });
+      result.success = false;
+    }
+  }
+
+  private async waitForConsistency(
+    operationPromise: Promise<void>,
+    timeout: number
+  ): Promise<void> {
+    const timeoutPromise = new Promise<void>((resolve) => {
+      setTimeout(resolve, timeout);
+    });
+
+    await Promise.race([operationPromise, timeoutPromise]);
   }
 
   /**
@@ -403,9 +464,9 @@ export class MultiDatabaseCoordinator {
     compensations: Array<(database: PostgresTestDB | MongoDBTestDB) => Promise<void>>,
     result: CoordinationResult
   ): Promise<void> {
-    for (let i = operations.length - 1; i >= 0; i--) {
-      const operation = operations[i];
-      const compensation = compensations[i];
+    for (let index = operations.length - 1; index >= 0; index--) {
+      const operation = operations[index];
+      const compensation = compensations[index];
 
       if (compensation && operation) {
         try {

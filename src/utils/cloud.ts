@@ -2,10 +2,10 @@
  * Cloud provider database integrations
  */
 
-import { createLogger, ILogger } from './logging.js';
+import { createLogger, type ILogger } from './logging.js';
 import { withSpan } from './telemetry.js';
 
-export interface CloudDatabaseConfig {
+export type CloudDatabaseConfig = {
   provider: 'aws' | 'gcp' | 'azure';
   region: string;
   instance: string;
@@ -18,16 +18,16 @@ export interface CloudDatabaseConfig {
     clientSecret?: string;
     tenantId?: string;
   };
-}
+};
 
-export interface CloudDatabaseConnection {
+export type CloudDatabaseConnection = {
   host: string;
   port: number;
   username: string;
   password: string;
   ssl: boolean;
   connectionString?: string;
-}
+};
 
 export class CloudDatabaseManager {
   protected readonly logger: ILogger;
@@ -39,8 +39,8 @@ export class CloudDatabaseManager {
   /**
    * Get connection details for AWS RDS
    */
-  public async getAWSRDSConnection(config: CloudDatabaseConfig): Promise<CloudDatabaseConnection> {
-    return withSpan('cloud.aws.rds.connect', async () => {
+  public getAWSRDSConnection(config: CloudDatabaseConfig): Promise<CloudDatabaseConnection> {
+    return withSpan('cloud.aws.rds.connect', () => {
       this.logger.info('Getting AWS RDS connection', {
         region: config.region,
         instance: config.instance,
@@ -61,17 +61,17 @@ export class CloudDatabaseManager {
       };
 
       this.logger.info('AWS RDS connection details retrieved', { host: connection.host });
-      return connection;
+      return Promise.resolve(connection);
     });
   }
 
   /**
    * Get connection details for Google Cloud SQL
    */
-  public async getGoogleCloudSQLConnection(
+  public getGoogleCloudSQLConnection(
     config: CloudDatabaseConfig
   ): Promise<CloudDatabaseConnection> {
-    return withSpan('cloud.gcp.sql.connect', async () => {
+    return withSpan('cloud.gcp.sql.connect', () => {
       this.logger.info('Getting Google Cloud SQL connection', {
         region: config.region,
         instance: config.instance,
@@ -94,17 +94,15 @@ export class CloudDatabaseManager {
       this.logger.info('Google Cloud SQL connection details retrieved', {
         instance: config.instance,
       });
-      return connection;
+      return Promise.resolve(connection);
     });
   }
 
   /**
    * Get connection details for Azure Database
    */
-  public async getAzureDatabaseConnection(
-    config: CloudDatabaseConfig
-  ): Promise<CloudDatabaseConnection> {
-    return withSpan('cloud.azure.db.connect', async () => {
+  public getAzureDatabaseConnection(config: CloudDatabaseConfig): Promise<CloudDatabaseConnection> {
+    return withSpan('cloud.azure.db.connect', () => {
       this.logger.info('Getting Azure Database connection', {
         region: config.region,
         instance: config.instance,
@@ -124,14 +122,14 @@ export class CloudDatabaseManager {
       };
 
       this.logger.info('Azure Database connection details retrieved', { host: connection.host });
-      return connection;
+      return Promise.resolve(connection);
     });
   }
 
   /**
    * Get connection details for any cloud provider
    */
-  public async getCloudConnection(config: CloudDatabaseConfig): Promise<CloudDatabaseConnection> {
+  public getCloudConnection(config: CloudDatabaseConfig): Promise<CloudDatabaseConnection> {
     switch (config.provider) {
       case 'aws':
         return this.getAWSRDSConnection(config);
@@ -180,14 +178,14 @@ export class CloudDatabaseManager {
   /**
    * Get cloud database metrics
    */
-  public async getCloudMetrics(config: CloudDatabaseConfig): Promise<{
+  public getCloudMetrics(config: CloudDatabaseConfig): Promise<{
     cpuUtilization?: number;
     memoryUtilization?: number;
     connections?: number;
     throughput?: number;
     latency?: number;
   }> {
-    return withSpan('cloud.metrics.get', async () => {
+    return withSpan('cloud.metrics.get', () => {
       // In a real implementation, this would query cloud provider APIs
       // for database performance metrics
       this.logger.debug('Getting cloud metrics', {
@@ -196,27 +194,27 @@ export class CloudDatabaseManager {
       });
 
       // Mock metrics for now
-      return {
+      return Promise.resolve({
         cpuUtilization: Math.random() * 100,
         memoryUtilization: Math.random() * 100,
         connections: Math.floor(Math.random() * 100),
         throughput: Math.random() * 1000,
         latency: Math.random() * 100,
-      };
+      });
     });
   }
 
   /**
    * Create cloud database snapshot for testing
    */
-  public async createCloudSnapshot(
+  public createCloudSnapshot(
     config: CloudDatabaseConfig,
     snapshotName: string
   ): Promise<{
     snapshotId: string;
     status: 'pending' | 'completed' | 'failed';
   }> {
-    return withSpan('cloud.snapshot.create', async () => {
+    return withSpan('cloud.snapshot.create', () => {
       this.logger.info('Creating cloud database snapshot', {
         provider: config.provider,
         snapshotName,
@@ -225,17 +223,17 @@ export class CloudDatabaseManager {
       // In a real implementation, this would trigger snapshot creation
       // through the cloud provider's API
 
-      return {
+      return Promise.resolve({
         snapshotId: `${config.provider}-snapshot-${Date.now()}`,
         status: 'completed',
-      };
+      });
     });
   }
 
   /**
    * Restore cloud database from snapshot
    */
-  public async restoreFromCloudSnapshot(
+  public restoreFromCloudSnapshot(
     config: CloudDatabaseConfig,
     snapshotId: string
   ): Promise<{
@@ -243,23 +241,23 @@ export class CloudDatabaseManager {
     newInstanceId?: string;
     error?: string;
   }> {
-    return withSpan('cloud.snapshot.restore', async () => {
+    return withSpan('cloud.snapshot.restore', () => {
       this.logger.info('Restoring from cloud snapshot', { snapshotId });
 
       // In a real implementation, this would restore the database
       // from the snapshot
 
-      return {
+      return Promise.resolve({
         success: true,
         newInstanceId: `${config.instance}-restored-${Date.now()}`,
-      };
+      });
     });
   }
 
   /**
    * Configure cloud database for testing
    */
-  public async configureForTesting(
+  public configureForTesting(
     config: CloudDatabaseConfig,
     testConfig: {
       maxConnections?: number;
@@ -267,7 +265,7 @@ export class CloudDatabaseManager {
       enableLogging?: boolean;
     }
   ): Promise<void> {
-    return withSpan('cloud.configure.testing', async () => {
+    return withSpan('cloud.configure.testing', () => {
       this.logger.info('Configuring cloud database for testing', {
         provider: config.provider,
         maxConnections: testConfig.maxConnections,
@@ -279,18 +277,19 @@ export class CloudDatabaseManager {
       // through the provider's API
 
       this.logger.info('Cloud database configured for testing');
+      return Promise.resolve();
     });
   }
 
   /**
    * Get cloud database backup status
    */
-  public async getBackupStatus(config: CloudDatabaseConfig): Promise<{
+  public getBackupStatus(config: CloudDatabaseConfig): Promise<{
     lastBackup?: Date;
     backupRetentionDays?: number;
     automatedBackupsEnabled?: boolean;
   }> {
-    return withSpan('cloud.backup.status', async () => {
+    return withSpan('cloud.backup.status', () => {
       // In a real implementation, this would query backup status
       // from the cloud provider
       this.logger.debug('Getting backup status', {
@@ -298,11 +297,11 @@ export class CloudDatabaseManager {
         instance: config.instance,
       });
 
-      return {
+      return Promise.resolve({
         lastBackup: new Date(Date.now() - 24 * 60 * 60 * 1000), // 1 day ago
         backupRetentionDays: 7,
         automatedBackupsEnabled: true,
-      };
+      });
     });
   }
 }
@@ -312,30 +311,31 @@ export class AWSRDSManager extends CloudDatabaseManager {
   /**
    * Get Aurora cluster endpoints
    */
-  public async getAuroraEndpoints(
+  public getAuroraEndpoints(
     clusterId: string,
     region: string
   ): Promise<{
     writer: string;
     readers: string[];
   }> {
-    return withSpan('aws.aurora.endpoints', async () => {
+    return withSpan('aws.aurora.endpoints', () => {
       // In a real implementation, this would use AWS RDS API
       this.logger.debug('Getting Aurora endpoints', { clusterId, region });
-      return {
+      return Promise.resolve({
         writer: `${clusterId}.cluster-random.${region}.rds.amazonaws.com`,
         readers: [`${clusterId}.cluster-ro-random.${region}.rds.amazonaws.com`],
-      };
+      });
     });
   }
 
   /**
    * Enable Aurora Global Database testing
    */
-  public async enableGlobalDatabaseTesting(clusterId: string): Promise<void> {
-    return withSpan('aws.aurora.global.enable', async () => {
+  public enableGlobalDatabaseTesting(clusterId: string): Promise<void> {
+    return withSpan('aws.aurora.global.enable', () => {
       this.logger.info('Enabling Aurora Global Database testing', { clusterId });
       // Implementation would configure global database settings
+      return Promise.resolve();
     });
   }
 }
@@ -345,29 +345,30 @@ export class GoogleCloudSQLManager extends CloudDatabaseManager {
   /**
    * Configure Cloud SQL high availability
    */
-  public async configureHighAvailability(instanceId: string): Promise<void> {
-    return withSpan('gcp.sql.ha.configure', async () => {
+  public configureHighAvailability(instanceId: string): Promise<void> {
+    return withSpan('gcp.sql.ha.configure', () => {
       this.logger.info('Configuring Cloud SQL high availability', { instanceId });
       // Implementation would enable high availability settings
+      return Promise.resolve();
     });
   }
 
   /**
    * Get Cloud SQL instance metrics
    */
-  public async getInstanceMetrics(instanceId: string): Promise<{
+  public getInstanceMetrics(instanceId: string): Promise<{
     activeConnections: number;
     queriesPerSecond: number;
     replicationLag?: number;
   }> {
-    return withSpan('gcp.sql.metrics', async () => {
+    return withSpan('gcp.sql.metrics', () => {
       // Implementation would query Cloud Monitoring API
       this.logger.debug('Getting Cloud SQL instance metrics', { instanceId });
-      return {
+      return Promise.resolve({
         activeConnections: Math.floor(Math.random() * 100),
         queriesPerSecond: Math.random() * 1000,
         replicationLag: Math.random() * 1000,
-      };
+      });
     });
   }
 }
@@ -377,31 +378,32 @@ export class AzureDatabaseManager extends CloudDatabaseManager {
   /**
    * Configure Azure SQL Database geo-replication
    */
-  public async configureGeoReplication(serverName: string, databaseName: string): Promise<void> {
-    return withSpan('azure.sql.geo.configure', async () => {
+  public configureGeoReplication(serverName: string, databaseName: string): Promise<void> {
+    return withSpan('azure.sql.geo.configure', () => {
       this.logger.info('Configuring Azure SQL geo-replication', { serverName, databaseName });
       // Implementation would set up geo-replication
+      return Promise.resolve();
     });
   }
 
   /**
    * Get Azure SQL Database performance insights
    */
-  public async getPerformanceInsights(databaseName: string): Promise<{
+  public getPerformanceInsights(databaseName: string): Promise<{
     cpuPercent: number;
     dataIoPercent: number;
     logIoPercent: number;
     memoryPercent: number;
   }> {
-    return withSpan('azure.sql.insights', async () => {
+    return withSpan('azure.sql.insights', () => {
       // Implementation would query Azure Monitor
       this.logger.debug('Getting Azure SQL performance insights', { databaseName });
-      return {
+      return Promise.resolve({
         cpuPercent: Math.random() * 100,
         dataIoPercent: Math.random() * 100,
         logIoPercent: Math.random() * 100,
         memoryPercent: Math.random() * 100,
-      };
+      });
     });
   }
 }

@@ -2,29 +2,29 @@
  * Schema migration testing utilities
  */
 
-import { promises as fs } from 'fs';
-import path from 'path';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 
 import { MongoDBTestDB } from '../mongodb/client.js';
 import { PostgresTestDB } from '../postgres/client.js';
 import { createLogger, type ILogger } from './logging.js';
 import { withSpan } from './telemetry.js';
 
-export interface SchemaDefinition {
+export type SchemaDefinition = {
   tables?: Record<string, TableSchema>;
   collections?: Record<string, CollectionSchema>;
   indexes?: Record<string, IndexDefinition>;
   constraints?: Record<string, ConstraintDefinition>;
-}
+};
 
-export interface TableSchema {
+export type TableSchema = {
   columns: Record<string, ColumnDefinition>;
   primaryKey?: string[];
   indexes?: IndexDefinition[];
   constraints?: ConstraintDefinition[];
-}
+};
 
-export interface ColumnDefinition {
+export type ColumnDefinition = {
   type: string;
   nullable?: boolean;
   default?: string;
@@ -32,21 +32,21 @@ export interface ColumnDefinition {
     table: string;
     column: string;
   };
-}
+};
 
-export interface CollectionSchema {
+export type CollectionSchema = {
   validator?: Record<string, unknown>;
   indexes?: IndexDefinition[];
-}
+};
 
-export interface IndexDefinition {
+export type IndexDefinition = {
   columns?: string[];
   keys?: Record<string, 1 | -1>;
   unique?: boolean;
   name?: string;
-}
+};
 
-export interface ConstraintDefinition {
+export type ConstraintDefinition = {
   type: 'unique' | 'check' | 'foreign_key';
   columns?: string[];
   expression?: string;
@@ -54,20 +54,26 @@ export interface ConstraintDefinition {
     table: string;
     columns: string[];
   };
-}
+};
 
-export interface MigrationStep {
+export type MigrationStep = {
   version: string;
   description: string;
-  up: (db: PostgresTestDB | MongoDBTestDB) => Promise<void>;
-  down: (db: PostgresTestDB | MongoDBTestDB) => Promise<void>;
-}
+  up: (database: PostgresTestDB | MongoDBTestDB) => Promise<void>;
+  down: (database: PostgresTestDB | MongoDBTestDB) => Promise<void>;
+};
 
-export interface MigrationResult {
+export type MigrationResult = {
   version: string;
   success: boolean;
   duration: number;
   error?: string;
+};
+
+function formatColumnDefinition(columnName: string, definition: ColumnDefinition): string {
+  const notNullClause = definition.nullable === false ? ' NOT NULL' : '';
+  const defaultClause = definition.default ? ` DEFAULT ${definition.default}` : '';
+  return `${columnName} ${definition.type}${notNullClause}${defaultClause}`;
 }
 
 export class SchemaMigrationTester {
@@ -83,7 +89,7 @@ export class SchemaMigrationTester {
   /**
    * Validate schema against current database state
    */
-  public async validateSchema(
+  public validateSchema(
     database: PostgresTestDB | MongoDBTestDB,
     expectedSchema: SchemaDefinition
   ): Promise<{
@@ -91,14 +97,14 @@ export class SchemaMigrationTester {
     differences: string[];
     recommendations: string[];
   }> {
-    return withSpan('schema.validate', async () => {
+    return withSpan('schema.validate', () => {
       if (database instanceof PostgresTestDB) {
         return this.validatePostgresSchema(database, expectedSchema);
-      } else if (database instanceof MongoDBTestDB) {
+      }
+      if (database instanceof MongoDBTestDB) {
         return this.validateMongoSchema(database, expectedSchema);
       }
-
-      throw new Error('Unsupported database type');
+      return Promise.reject(new Error('Unsupported database type'));
     });
   }
 
@@ -122,35 +128,14 @@ export class SchemaMigrationTester {
 
     // Validate tables exist
     for (const [tableName, expectedTable] of Object.entries(expectedSchema.tables)) {
-      if (!currentTables[tableName]) {
-        differences.push(`Missing table: ${tableName}`);
-        recommendations.push(
-          `Create table ${tableName} with schema: ${JSON.stringify(expectedTable)}`
-        );
-        continue;
-      }
-
-      // Validate columns
-      const currentColumns = currentTables[tableName].columns;
-      for (const [columnName, expectedColumn] of Object.entries(expectedTable.columns)) {
-        if (!currentColumns[columnName]) {
-          differences.push(`Missing column ${columnName} in table ${tableName}`);
-          recommendations.push(`Add column ${columnName} to table ${tableName}`);
-          continue;
-        }
-
-        const currentColumn = currentColumns[columnName];
-        if (currentColumn.type !== expectedColumn.type) {
-          differences.push(
-            `Column ${columnName} in table ${tableName} has type ${currentColumn.type}, expected ${expectedColumn.type}`
-          );
-        }
-        if (currentColumn.nullable !== expectedColumn.nullable) {
-          differences.push(
-            `Column ${columnName} in table ${tableName} nullable: ${currentColumn.nullable}, expected ${expectedColumn.nullable}`
-          );
-        }
-      }
+      const currentTable = currentTables[tableName];
+      this.validatePostgresTableSchema(
+        tableName,
+        expectedTable,
+        currentTable,
+        differences,
+        recommendations
+      );
     }
 
     return {
@@ -158,6 +143,64 @@ export class SchemaMigrationTester {
       differences,
       recommendations,
     };
+  }
+
+  private validatePostgresTableSchema(
+    tableName: string,
+    expectedTable: TableSchema,
+    currentTable:
+      | {
+          columns: Record<string, { type: string; nullable: boolean }>;
+        }
+      | undefined,
+    differences: string[],
+    recommendations: string[]
+  ): void {
+    if (!currentTable) {
+      differences.push(`Missing table: ${tableName}`);
+      recommendations.push(
+        `Create table ${tableName} with schema: ${JSON.stringify(expectedTable)}`
+      );
+      return;
+    }
+
+    const currentColumns = currentTable.columns;
+    for (const [columnName, expectedColumn] of Object.entries(expectedTable.columns)) {
+      const currentColumn = currentColumns[columnName];
+      if (!currentColumn) {
+        differences.push(`Missing column ${columnName} in table ${tableName}`);
+        recommendations.push(`Add column ${columnName} to table ${tableName}`);
+        continue;
+      }
+
+      this.validatePostgresColumn(
+        tableName,
+        columnName,
+        currentColumn,
+        expectedColumn,
+        differences
+      );
+    }
+  }
+
+  private validatePostgresColumn(
+    tableName: string,
+    columnName: string,
+    currentColumn: { type: string; nullable: boolean },
+    expectedColumn: ColumnDefinition,
+    differences: string[]
+  ): void {
+    if (currentColumn.type !== expectedColumn.type) {
+      differences.push(
+        `Column ${columnName} in table ${tableName} has type ${currentColumn.type}, expected ${expectedColumn.type}`
+      );
+    }
+
+    if (currentColumn.nullable !== expectedColumn.nullable) {
+      differences.push(
+        `Column ${columnName} in table ${tableName} nullable: ${currentColumn.nullable}, expected ${expectedColumn.nullable}`
+      );
+    }
   }
 
   private async validateMongoSchema(
@@ -189,17 +232,13 @@ export class SchemaMigrationTester {
       // Validate indexes
       if (expectedCollection.indexes) {
         const currentIndexes = currentCollections[collectionName].indexes || [];
-        for (const expectedIndex of expectedCollection.indexes) {
-          const indexExists = currentIndexes.some((currentIndex) =>
-            this.compareIndexes(currentIndex, expectedIndex)
-          );
-          if (!indexExists) {
-            differences.push(
-              `Missing index on collection ${collectionName}: ${JSON.stringify(expectedIndex)}`
-            );
-            recommendations.push(`Create index on collection ${collectionName}`);
-          }
-        }
+        this.validateMongoIndexes(
+          collectionName,
+          expectedCollection.indexes,
+          currentIndexes,
+          differences,
+          recommendations
+        );
       }
     }
 
@@ -210,10 +249,30 @@ export class SchemaMigrationTester {
     };
   }
 
+  private validateMongoIndexes(
+    collectionName: string,
+    expectedIndexes: IndexDefinition[],
+    currentIndexes: IndexDefinition[],
+    differences: string[],
+    recommendations: string[]
+  ): void {
+    for (const expectedIndex of expectedIndexes) {
+      const hasIndex = currentIndexes.some((currentIndex) =>
+        this.compareIndexes(currentIndex, expectedIndex)
+      );
+      if (!hasIndex) {
+        differences.push(
+          `Missing index on collection ${collectionName}: ${JSON.stringify(expectedIndex)}`
+        );
+        recommendations.push(`Create index on collection ${collectionName}`);
+      }
+    }
+  }
+
   /**
    * Run migration steps and measure performance
    */
-  public async testMigrations(
+  public testMigrations(
     database: PostgresTestDB | MongoDBTestDB,
     migrations: MigrationStep[]
   ): Promise<{
@@ -221,83 +280,99 @@ export class SchemaMigrationTester {
     totalDuration: number;
     rollbackResults: MigrationResult[];
   }> {
-    return withSpan('migration.test', async () => {
-      const results: MigrationResult[] = [];
-      const rollbackResults: MigrationResult[] = [];
-      let totalDuration = 0;
+    return withSpan('migration.test', () => this.runMigrationTest(database, migrations));
+  }
 
-      // Run migrations up
-      for (const migration of migrations) {
-        const startTime = Date.now();
-        try {
-          await migration.up(database);
-          const duration = Date.now() - startTime;
-          results.push({
-            version: migration.version,
-            success: true,
-            duration,
-          });
-          totalDuration += duration;
-          this.logger.info('Migration up successful', { version: migration.version, duration });
-        } catch (error) {
-          const duration = Date.now() - startTime;
-          const error_ = error instanceof Error ? error : new Error(String(error));
-          results.push({
-            version: migration.version,
-            success: false,
-            duration,
-            error: error_.message,
-          });
-          this.logger.error('Migration up failed', {
-            version: migration.version,
-            error: error_.message,
-          });
-          break;
-        }
+  private async runMigrationTest(
+    database: PostgresTestDB | MongoDBTestDB,
+    migrations: MigrationStep[]
+  ): Promise<{
+    results: MigrationResult[];
+    totalDuration: number;
+    rollbackResults: MigrationResult[];
+  }> {
+    const { results, totalDuration, completedMigrations } = await this.runMigrationsUp(
+      database,
+      migrations
+    );
+    const rollbackResults = await this.runMigrationsDown(database, completedMigrations);
+    return { results, totalDuration, rollbackResults };
+  }
+
+  private async runMigrationsUp(
+    database: PostgresTestDB | MongoDBTestDB,
+    migrations: MigrationStep[]
+  ): Promise<{
+    results: MigrationResult[];
+    totalDuration: number;
+    completedMigrations: MigrationStep[];
+  }> {
+    const results: MigrationResult[] = [];
+    const completedMigrations: MigrationStep[] = [];
+    let totalDuration = 0;
+
+    for (const migration of migrations) {
+      const outcome = await this.runSingleMigration(database, migration, 'up');
+      results.push(outcome.result);
+      totalDuration += outcome.result.duration;
+      if (!outcome.result.success) {
+        break;
       }
+      completedMigrations.push(migration);
+    }
 
-      // Run migrations down in reverse order
-      for (const migration of migrations.slice().reverse()) {
-        const startTime = Date.now();
-        try {
-          await migration.down(database);
-          const duration = Date.now() - startTime;
-          rollbackResults.push({
-            version: migration.version,
-            success: true,
-            duration,
-          });
-          this.logger.info('Migration down successful', { version: migration.version, duration });
-        } catch (error) {
-          const duration = Date.now() - startTime;
-          const error_ = error instanceof Error ? error : new Error(String(error));
-          rollbackResults.push({
-            version: migration.version,
-            success: false,
-            duration,
-            error: error_.message,
-          });
-          this.logger.error('Migration down failed', {
-            version: migration.version,
-            error: error_.message,
-          });
-        }
+    return { results, totalDuration, completedMigrations };
+  }
+
+  private async runMigrationsDown(
+    database: PostgresTestDB | MongoDBTestDB,
+    migrations: MigrationStep[]
+  ): Promise<MigrationResult[]> {
+    const rollbackResults: MigrationResult[] = [];
+    for (const migration of [...migrations].reverse()) {
+      const outcome = await this.runSingleMigration(database, migration, 'down');
+      rollbackResults.push(outcome.result);
+    }
+    return rollbackResults;
+  }
+
+  private async runSingleMigration(
+    database: PostgresTestDB | MongoDBTestDB,
+    migration: MigrationStep,
+    direction: 'up' | 'down'
+  ): Promise<{ result: MigrationResult }> {
+    const startTime = Date.now();
+    try {
+      if (direction === 'up') {
+        await migration.up(database);
+      } else {
+        await migration.down(database);
       }
-
+      const duration = Date.now() - startTime;
+      this.logger.info(`Migration ${direction} successful`, {
+        version: migration.version,
+        duration,
+      });
+      return { result: { version: migration.version, success: true, duration } };
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      const error_ = error instanceof Error ? error : new Error(String(error));
+      this.logger.error(`Migration ${direction} failed`, {
+        version: migration.version,
+        error: error_.message,
+      });
       return {
-        results,
-        totalDuration,
-        rollbackResults,
+        result: { version: migration.version, success: false, duration, error: error_.message },
       };
-    });
+    }
   }
 
   /**
    * Detect schema drift between environments
    */
   public async detectSchemaDrift(
-    sourceDb: PostgresTestDB | MongoDBTestDB,
-    targetDb: PostgresTestDB | MongoDBTestDB,
+    sourceDatabase: PostgresTestDB | MongoDBTestDB,
+    targetDatabase: PostgresTestDB | MongoDBTestDB,
     schema: SchemaDefinition
   ): Promise<{
     hasDrift: boolean;
@@ -305,8 +380,8 @@ export class SchemaMigrationTester {
     targetDifferences: string[];
   }> {
     const [sourceValidation, targetValidation] = await Promise.all([
-      this.validateSchema(sourceDb, schema),
-      this.validateSchema(targetDb, schema),
+      this.validateSchema(sourceDatabase, schema),
+      this.validateSchema(targetDatabase, schema),
     ]);
 
     return {
@@ -332,23 +407,20 @@ export class SchemaMigrationTester {
           migrations.push({
             version: `create_table_${tableName}_${Date.now()}`,
             description: `Create table ${tableName}`,
-            up: async (db) => {
-              if (db instanceof PostgresTestDB) {
+            up: async (database) => {
+              if (database instanceof PostgresTestDB) {
                 const columns = Object.entries(tableSchema.columns)
-                  .map(
-                    ([col, def]) =>
-                      `${col} ${def.type}${def.nullable === false ? ' NOT NULL' : ''}${def.default ? ` DEFAULT ${def.default}` : ''}`
-                  )
+                  .map(([col, definition]) => formatColumnDefinition(col, definition))
                   .join(', ');
                 const primaryKey = tableSchema.primaryKey
                   ? `, PRIMARY KEY (${tableSchema.primaryKey.join(', ')})`
                   : '';
-                await db.query(`CREATE TABLE ${tableName} (${columns}${primaryKey})`);
+                await database.query(`CREATE TABLE ${tableName} (${columns}${primaryKey})`);
               }
             },
-            down: async (db) => {
-              if (db instanceof PostgresTestDB) {
-                await db.query(`DROP TABLE IF EXISTS ${tableName}`);
+            down: async (database) => {
+              if (database instanceof PostgresTestDB) {
+                await database.query(`DROP TABLE IF EXISTS ${tableName}`);
               }
             },
           });
@@ -381,25 +453,23 @@ export class SchemaMigrationTester {
       const tableName = row.table_name as string;
       const columnName = row.column_name as string;
       const type = row.data_type as string;
-      const nullable = row.is_nullable === 'YES';
+      const isNullable = row.is_nullable === 'YES';
 
-      if (!tables[tableName]) {
-        tables[tableName] = { columns: {} };
-      }
-      tables[tableName].columns[columnName] = { type, nullable };
+      tables[tableName] ??= { columns: {} };
+      tables[tableName].columns[columnName] = { type, nullable: isNullable };
     }
 
     return tables;
   }
 
-  private async getMongoCollections(
+  private getMongoCollections(
     database: MongoDBTestDB
   ): Promise<Record<string, { indexes: IndexDefinition[] }>> {
     // This is a simplified implementation - in practice, you'd query MongoDB system collections
     this.logger.debug('Getting MongoDB collections', { database: database.constructor.name });
     const collections: Record<string, { indexes: IndexDefinition[] }> = {};
     // Implementation would query system.indexes collection
-    return collections;
+    return Promise.resolve(collections);
   }
 
   private compareIndexes(index1: IndexDefinition, index2: IndexDefinition): boolean {
@@ -434,8 +504,8 @@ export const testDatabaseMigrations = (
 };
 
 export const detectSchemaDrift = (
-  sourceDb: PostgresTestDB | MongoDBTestDB,
-  targetDb: PostgresTestDB | MongoDBTestDB,
+  sourceDatabase: PostgresTestDB | MongoDBTestDB,
+  targetDatabase: PostgresTestDB | MongoDBTestDB,
   schema: SchemaDefinition
 ): Promise<{
   hasDrift: boolean;
@@ -443,7 +513,7 @@ export const detectSchemaDrift = (
   targetDifferences: string[];
 }> => {
   const tester = new SchemaMigrationTester();
-  return tester.detectSchemaDrift(sourceDb, targetDb, schema);
+  return tester.detectSchemaDrift(sourceDatabase, targetDatabase, schema);
 };
 
 export const generateSchemaMigration = (

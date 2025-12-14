@@ -2,40 +2,40 @@
  * Enhanced chaos engineering utilities for database testing
  */
 
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
 
-import { MongoDBTestDB } from '../mongodb/client.js';
+import type { MongoDBTestDB } from '../mongodb/client.js';
 import { PostgresTestDB } from '../postgres/client.js';
 import { createLogger, type ILogger } from './logging.js';
 import { withSpan } from './telemetry.js';
 
-export interface DatabaseChaosConfig {
+export type DatabaseChaosConfig = {
   operation: 'connection' | 'query' | 'transaction' | 'index' | 'lock';
   failureMode: 'timeout' | 'disconnect' | 'corruption' | 'slow' | 'deadlock';
   probability: number;
   duration?: string;
   targetTables?: string[];
   targetCollections?: string[];
-}
+};
 
-export interface NetworkChaosConfig {
+export type NetworkChaosConfig = {
   latency: number;
   jitter?: number;
   packetLoss?: number;
   corruption?: number;
   duration: string;
-}
+};
 
-export interface MultiDatabaseChaosConfig {
+export type MultiDatabaseChaosConfig = {
   databases: Array<{
     database: PostgresTestDB | MongoDBTestDB;
     config: DatabaseChaosConfig;
   }>;
   coordinationMode: 'sequential' | 'parallel' | 'staggered';
   staggerDelay?: number;
-}
+};
 
-export interface ChaosExperiment {
+export type ChaosExperiment = {
   id: string;
   name: string;
   description?: string;
@@ -48,9 +48,9 @@ export interface ChaosExperiment {
     threshold: number;
     operator: 'gt' | 'lt' | 'gte' | 'lte' | 'eq';
   }>;
-}
+};
 
-export interface ChaosResult {
+export type ChaosResult = {
   experimentId: string;
   success: boolean;
   duration: number;
@@ -68,12 +68,12 @@ export interface ChaosResult {
   }>;
   metrics: Record<string, number[]>;
   errors: string[];
-}
+};
 
 export class DatabaseChaosOrchestrator {
   private readonly logger: ILogger;
-  private activeExperiments: Map<string, ChaosExperiment> = new Map();
-  private chaosStates: Map<string, boolean> = new Map();
+  private readonly activeExperiments: Map<string, ChaosExperiment> = new Map();
+  private readonly chaosStates: Map<string, boolean> = new Map();
 
   constructor() {
     this.logger = createLogger('DatabaseChaosOrchestrator');
@@ -85,7 +85,7 @@ export class DatabaseChaosOrchestrator {
   public async injectDatabaseChaos(
     database: PostgresTestDB | MongoDBTestDB,
     config: DatabaseChaosConfig,
-    duration: string = '30s'
+    duration = '30s'
   ): Promise<void> {
     const experimentId = randomUUID();
 
@@ -162,12 +162,12 @@ export class DatabaseChaosOrchestrator {
       await withSpan('multi-database.chaos.inject', async () => {
         this.logger.info('Injecting multi-database chaos', { experimentId, config });
 
-        const promises = config.databases.map(async (dbConfig, index) => {
+        const promises = config.databases.map(async (databaseConfig, index) => {
           if (config.coordinationMode === 'staggered' && config.staggerDelay) {
             await this.sleep(index * config.staggerDelay);
           }
 
-          return this.injectDatabaseChaos(dbConfig.database, dbConfig.config);
+          return this.injectDatabaseChaos(databaseConfig.database, databaseConfig.config);
         });
 
         if (config.coordinationMode === 'sequential') {
@@ -195,55 +195,11 @@ export class DatabaseChaosOrchestrator {
    */
   public async runChaosExperiment(experiment: ChaosExperiment): Promise<ChaosResult> {
     const startTime = Date.now();
-    const result: ChaosResult = {
-      experimentId: experiment.id,
-      success: true,
-      duration: 0,
-      triggeredFailures: [],
-      safetyViolations: [],
-      metrics: {},
-      errors: [],
-    };
+    const result = this.createEmptyResult(experiment.id);
 
     try {
       await withSpan('chaos.experiment.run', async () => {
-        this.activeExperiments.set(experiment.id, experiment);
-        this.logger.info('Starting chaos experiment', {
-          experimentId: experiment.id,
-          name: experiment.name,
-        });
-
-        const promises: Promise<void>[] = [];
-
-        // Database chaos
-        if (experiment.databaseChaos) {
-          for (const chaosConfig of experiment.databaseChaos) {
-            // Note: This would need actual database instances
-            // For now, we'll just log the intent
-            this.logger.info('Would inject database chaos', { config: chaosConfig });
-          }
-        }
-
-        // Network chaos
-        if (experiment.networkChaos) {
-          promises.push(this.injectNetworkChaos(experiment.networkChaos));
-        }
-
-        // Multi-database chaos
-        if (experiment.multiDatabaseChaos) {
-          promises.push(this.injectMultiDatabaseChaos(experiment.multiDatabaseChaos));
-        }
-
-        await Promise.all(promises);
-
-        const durationMs = this.parseDuration(experiment.duration);
-        await this.sleep(durationMs);
-
-        result.duration = Date.now() - startTime;
-        this.logger.info('Chaos experiment completed', {
-          experimentId: experiment.id,
-          duration: result.duration,
-        });
+        await this.runExperimentSteps(experiment, startTime, result);
       });
     } catch (error) {
       result.success = false;
@@ -260,12 +216,68 @@ export class DatabaseChaosOrchestrator {
     return result;
   }
 
+  private createEmptyResult(experimentId: string): ChaosResult {
+    return {
+      experimentId,
+      success: true,
+      duration: 0,
+      triggeredFailures: [],
+      safetyViolations: [],
+      metrics: {},
+      errors: [],
+    };
+  }
+
+  private async runExperimentSteps(
+    experiment: ChaosExperiment,
+    startTime: number,
+    result: ChaosResult
+  ): Promise<void> {
+    this.activeExperiments.set(experiment.id, experiment);
+    this.logger.info('Starting chaos experiment', {
+      experimentId: experiment.id,
+      name: experiment.name,
+    });
+
+    await this.runExperimentChaos(experiment);
+
+    const durationMs = this.parseDuration(experiment.duration);
+    await this.sleep(durationMs);
+
+    result.duration = Date.now() - startTime;
+    this.logger.info('Chaos experiment completed', {
+      experimentId: experiment.id,
+      duration: result.duration,
+    });
+  }
+
+  private async runExperimentChaos(experiment: ChaosExperiment): Promise<void> {
+    const promises: Array<Promise<void>> = [];
+
+    if (experiment.databaseChaos) {
+      for (const chaosConfig of experiment.databaseChaos) {
+        // Note: This would need actual database instances.
+        this.logger.info('Would inject database chaos', { config: chaosConfig });
+      }
+    }
+
+    if (experiment.networkChaos) {
+      promises.push(this.injectNetworkChaos(experiment.networkChaos));
+    }
+
+    if (experiment.multiDatabaseChaos) {
+      promises.push(this.injectMultiDatabaseChaos(experiment.multiDatabaseChaos));
+    }
+
+    await Promise.all(promises);
+  }
+
   /**
    * Simulate database connection failures
    */
   public async simulateConnectionFailure(
     database: PostgresTestDB | MongoDBTestDB,
-    duration: string = '5s'
+    duration = '5s'
   ): Promise<void> {
     const durationMs = this.parseDuration(duration);
 
@@ -296,17 +308,17 @@ export class DatabaseChaosOrchestrator {
    */
   public async simulateSlowQueries(
     database: PostgresTestDB | MongoDBTestDB,
-    multiplier: number = 2,
-    duration: string = '30s'
+    multiplier = 2,
+    duration = '30s'
   ): Promise<void> {
     const durationMs = this.parseDuration(duration);
     const chaosKey = `slow_queries_${randomUUID()}`;
-    const dbType = database instanceof PostgresTestDB ? 'PostgreSQL' : 'MongoDB';
+    const databaseType = database instanceof PostgresTestDB ? 'PostgreSQL' : 'MongoDB';
 
     try {
       await withSpan('database.slow.queries.simulate', async () => {
         this.logger.info('Simulating slow queries', {
-          database: dbType,
+          database: databaseType,
           multiplier,
           duration: durationMs,
         });
@@ -391,34 +403,59 @@ export class DatabaseChaosOrchestrator {
     database: PostgresTestDB | MongoDBTestDB,
     config: DatabaseChaosConfig
   ): Promise<void> {
-    switch (config.failureMode) {
-      case 'timeout':
-        await this.simulateTimeout(database, config.duration || '5s');
-        break;
-      case 'disconnect':
-        await this.simulateConnectionFailure(database, config.duration || '2s');
-        break;
-      case 'slow':
-        await this.simulateSlowQueries(database, 3, config.duration || '10s');
-        break;
-      case 'deadlock':
-        if (database instanceof PostgresTestDB && config.targetTables?.length === 2) {
-          const table1 = config.targetTables[0] || 'table1';
-          const table2 = config.targetTables[1] || 'table2';
-          await this.simulateDeadlock(database, table1, table2);
-        }
-        break;
-      default:
-        this.logger.warn('Unknown failure mode', { mode: config.failureMode });
+    const durationByMode: Record<DatabaseChaosConfig['failureMode'], string> = {
+      timeout: '5s',
+      disconnect: '2s',
+      corruption: '1s',
+      slow: '10s',
+      deadlock: '5s',
+    };
+
+    const duration = config.duration ?? durationByMode[config.failureMode];
+
+    const handlers: Record<DatabaseChaosConfig['failureMode'], () => Promise<void>> = {
+      timeout: () => this.simulateTimeout(database, duration),
+      disconnect: () => this.simulateConnectionFailure(database, duration),
+      corruption: () => this.simulateDataCorruption(database, config),
+      slow: () => this.simulateSlowQueries(database, 3, duration),
+      deadlock: () => this.simulateDeadlockFailure(database, config),
+    };
+
+    await handlers[config.failureMode]();
+  }
+
+  private async simulateDeadlockFailure(
+    database: PostgresTestDB | MongoDBTestDB,
+    config: DatabaseChaosConfig
+  ): Promise<void> {
+    if (!(database instanceof PostgresTestDB)) {
+      this.logger.warn('Deadlock simulation is only supported for PostgreSQL');
+      return;
     }
+
+    const table1 = config.targetTables?.[0] ?? 'table1';
+    const table2 = config.targetTables?.[1] ?? 'table2';
+    await this.simulateDeadlock(database, table1, table2);
+  }
+
+  private simulateDataCorruption(
+    database: PostgresTestDB | MongoDBTestDB,
+    config: DatabaseChaosConfig
+  ): Promise<void> {
+    const databaseType = database instanceof PostgresTestDB ? 'PostgreSQL' : 'MongoDB';
+    this.logger.warn('Simulating data corruption', {
+      database: databaseType,
+      targets: config.targetTables ?? config.targetCollections,
+    });
+    throw new Error('Simulated data corruption');
   }
 
   private async simulateTimeout(
     database: PostgresTestDB | MongoDBTestDB,
     duration: string
   ): Promise<void> {
-    const dbType = database instanceof PostgresTestDB ? 'PostgreSQL' : 'MongoDB';
-    this.logger.debug('Simulating timeout', { database: dbType, duration });
+    const databaseType = database instanceof PostgresTestDB ? 'PostgreSQL' : 'MongoDB';
+    this.logger.debug('Simulating timeout', { database: databaseType, duration });
     const durationMs = this.parseDuration(duration);
     await this.sleep(durationMs);
     throw new Error('Simulated timeout');
@@ -430,8 +467,11 @@ export class DatabaseChaosOrchestrator {
       throw new Error(`Invalid duration format: ${duration}`);
     }
 
-    const value = parseInt(match[1] || '0', 10);
+    const value = parseInt(match[1] ?? '0', 10);
     const unit = match[2];
+    if (!unit) {
+      throw new Error(`Invalid duration unit: ${duration}`);
+    }
 
     switch (unit) {
       case 'ms':
@@ -447,8 +487,10 @@ export class DatabaseChaosOrchestrator {
     }
   }
 
-  private async sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  private sleep(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    });
   }
 }
 

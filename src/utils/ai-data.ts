@@ -2,12 +2,12 @@
  * AI-powered data generation for database testing
  */
 
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
 
-import { createLogger, ILogger } from './logging.js';
+import { createLogger, type ILogger } from './logging.js';
 import { withSpan } from './telemetry.js';
 
-export interface DataGenerationConfig {
+export type DataGenerationConfig = {
   table: string;
   count: number;
   schema: Record<
@@ -36,19 +36,19 @@ export interface DataGenerationConfig {
       distribution?: 'uniform' | 'normal' | 'exponential';
     }
   >;
-}
+};
 
-export interface GeneratedData {
+export type GeneratedData = {
   table: string;
-  records: Record<string, unknown>[];
+  records: Array<Record<string, unknown>>;
   metadata: {
     generationTime: number;
     aiEnhanced: boolean;
     patterns: string[];
   };
-}
+};
 
-export interface AIContext {
+export type AIContext = {
   domain: string;
   entities: Record<
     string,
@@ -72,11 +72,17 @@ export interface AIContext {
     type: 'unique' | 'foreign_key' | 'check';
     description: string;
   }>;
-}
+};
+
+const integerTypes = new Set(['integer', 'int', 'bigint']);
+const stringTypes = new Set(['varchar', 'text', 'string']);
+const booleanTypes = new Set(['boolean', 'bool']);
+const dateTypes = new Set(['date', 'datetime', 'timestamp']);
+const jsonTypes = new Set(['json', 'jsonb']);
 
 export class AIDataGenerator {
   private readonly logger: ILogger;
-  private aiContext?: AIContext;
+  private readonly aiContext?: AIContext;
 
   constructor(aiContext?: AIContext) {
     this.logger = createLogger('AIDataGenerator');
@@ -91,8 +97,8 @@ export class AIDataGenerator {
   /**
    * Generate realistic test data using AI patterns
    */
-  public async generateRealisticData(config: DataGenerationConfig): Promise<GeneratedData> {
-    return withSpan('ai.data.generate.realistic', async () => {
+  public generateRealisticData(config: DataGenerationConfig): Promise<GeneratedData> {
+    return withSpan('ai.data.generate.realistic', () => {
       const startTime = Date.now();
       const hasAIContext = !!this.aiContext;
       this.logger.info('Generating realistic AI-powered data', {
@@ -101,10 +107,10 @@ export class AIDataGenerator {
         aiEnhanced: hasAIContext,
       });
 
-      const records: Record<string, unknown>[] = [];
+      const records: Array<Record<string, unknown>> = [];
 
-      for (let i = 0; i < config.count; i++) {
-        const record = await this.generateRealisticRecord(config, i);
+      for (let index = 0; index < config.count; index++) {
+        const record = this.generateRealisticRecord(config, index);
         records.push(record);
       }
 
@@ -124,22 +130,22 @@ export class AIDataGenerator {
         time: result.metadata.generationTime,
       });
 
-      return result;
+      return Promise.resolve(result);
     });
   }
 
   /**
    * Generate edge case data for testing boundaries
    */
-  public async generateEdgeCaseData(config: DataGenerationConfig): Promise<GeneratedData> {
-    return withSpan('ai.data.generate.edge-cases', async () => {
+  public generateEdgeCaseData(config: DataGenerationConfig): Promise<GeneratedData> {
+    return withSpan('ai.data.generate.edge-cases', () => {
       const startTime = Date.now();
       this.logger.info('Generating edge case data', { table: config.table, count: config.count });
 
-      const records: Record<string, unknown>[] = [];
+      const records: Array<Record<string, unknown>> = [];
 
-      for (let i = 0; i < config.count; i++) {
-        const record = await this.generateEdgeCaseRecord(config, i);
+      for (let index = 0; index < config.count; index++) {
+        const record = this.generateEdgeCaseRecord(config, index);
         records.push(record);
       }
 
@@ -153,25 +159,25 @@ export class AIDataGenerator {
         },
       };
 
-      return result;
+      return Promise.resolve(result);
     });
   }
 
   /**
    * Generate performance testing data with specific patterns
    */
-  public async generatePerformanceData(config: DataGenerationConfig): Promise<GeneratedData> {
-    return withSpan('ai.data.generate.performance', async () => {
+  public generatePerformanceData(config: DataGenerationConfig): Promise<GeneratedData> {
+    return withSpan('ai.data.generate.performance', () => {
       const startTime = Date.now();
       this.logger.info('Generating performance testing data', {
         table: config.table,
         count: config.count,
       });
 
-      const records: Record<string, unknown>[] = [];
+      const records: Array<Record<string, unknown>> = [];
 
-      for (let i = 0; i < config.count; i++) {
-        const record = await this.generatePerformanceRecord(config, i);
+      for (let index = 0; index < config.count; index++) {
+        const record = this.generatePerformanceRecord(config, index);
         records.push(record);
       }
 
@@ -185,14 +191,14 @@ export class AIDataGenerator {
         },
       };
 
-      return result;
+      return Promise.resolve(result);
     });
   }
 
   /**
    * Generate data with semantic relationships
    */
-  public async generateRelationalData(
+  public generateRelationalData(
     configs: DataGenerationConfig[],
     relationshipConfig: {
       foreignKeys: Array<{
@@ -240,9 +246,9 @@ export class AIDataGenerator {
   /**
    * Learn from existing data patterns
    */
-  public async learnFromExistingData(
+  public learnFromExistingData(
     tableName: string,
-    sampleData: Record<string, unknown>[]
+    sampleData: Array<Record<string, unknown>>
   ): Promise<{
     patterns: Record<
       string,
@@ -254,7 +260,7 @@ export class AIDataGenerator {
     >;
     recommendations: string[];
   }> {
-    return withSpan('ai.data.learn.patterns', async () => {
+    return withSpan('ai.data.learn.patterns', () => {
       this.logger.info('Learning data patterns', { table: tableName, samples: sampleData.length });
 
       const patterns: Record<
@@ -275,7 +281,7 @@ export class AIDataGenerator {
         for (const column of columns) {
           const values = sampleData
             .map((row) => row[column])
-            .filter((val) => val !== null && val !== undefined);
+            .filter((value) => value !== null && value !== undefined);
           const pattern = this.analyzeColumnPattern(column, values);
           patterns[column] = pattern;
 
@@ -291,14 +297,14 @@ export class AIDataGenerator {
         }
       }
 
-      return { patterns, recommendations };
+      return Promise.resolve({ patterns, recommendations });
     });
   }
 
   /**
    * Generate data that respects business rules
    */
-  public async generateBusinessRuleCompliantData(
+  public generateBusinessRuleCompliantData(
     config: DataGenerationConfig,
     businessRules: Array<{
       name: string;
@@ -306,21 +312,21 @@ export class AIDataGenerator {
       description: string;
     }>
   ): Promise<GeneratedData> {
-    return withSpan('ai.data.generate.business-rules', async () => {
+    return withSpan('ai.data.generate.business-rules', () => {
       this.logger.info('Generating business rule compliant data', {
         table: config.table,
         rules: businessRules.length,
       });
 
-      const records: Record<string, unknown>[] = [];
+      const records: Array<Record<string, unknown>> = [];
 
-      for (let i = 0; i < config.count; i++) {
+      for (let index = 0; index < config.count; index++) {
         let record: Record<string, unknown>;
         let attempts = 0;
         const maxAttempts = 10;
 
         do {
-          record = await this.generateRealisticRecord(config, i);
+          record = this.generateRealisticRecord(config, index);
           attempts++;
         } while (!this.validateBusinessRules(record, businessRules) && attempts < maxAttempts);
 
@@ -331,7 +337,7 @@ export class AIDataGenerator {
         records.push(record);
       }
 
-      return {
+      return Promise.resolve({
         table: config.table,
         records,
         metadata: {
@@ -339,14 +345,14 @@ export class AIDataGenerator {
           aiEnhanced: true,
           patterns: ['business-rules', 'compliance'],
         },
-      };
+      });
     });
   }
 
-  private async generateRealisticRecord(
+  private generateRealisticRecord(
     config: DataGenerationConfig,
     index: number
-  ): Promise<Record<string, unknown>> {
+  ): Record<string, unknown> {
     const record: Record<string, unknown> = {};
 
     for (const [columnName, columnSchema] of Object.entries(config.schema)) {
@@ -368,10 +374,10 @@ export class AIDataGenerator {
     return record;
   }
 
-  private async generateEdgeCaseRecord(
+  private generateEdgeCaseRecord(
     config: DataGenerationConfig,
     index: number
-  ): Promise<Record<string, unknown>> {
+  ): Record<string, unknown> {
     const record: Record<string, unknown> = {};
 
     for (const [columnName, columnSchema] of Object.entries(config.schema)) {
@@ -385,10 +391,10 @@ export class AIDataGenerator {
     return record;
   }
 
-  private async generatePerformanceRecord(
+  private generatePerformanceRecord(
     config: DataGenerationConfig,
     index: number
-  ): Promise<Record<string, unknown>> {
+  ): Record<string, unknown> {
     const record: Record<string, unknown> = {};
 
     for (const [columnName, columnSchema] of Object.entries(config.schema)) {
@@ -411,30 +417,33 @@ export class AIDataGenerator {
       return null;
     }
 
-    switch (type.toLowerCase()) {
-      case 'integer':
-      case 'int':
-      case 'bigint':
-        return this.generateInteger(options.pattern);
-      case 'varchar':
-      case 'text':
-      case 'string':
-        return this.generateString(options.pattern, options.index);
-      case 'boolean':
-      case 'bool':
-        return Math.random() > 0.5;
-      case 'date':
-      case 'datetime':
-      case 'timestamp':
-        return this.generateDate(options.pattern);
-      case 'uuid':
-        return randomUUID();
-      case 'json':
-      case 'jsonb':
-        return this.generateJSON(options.pattern);
-      default:
-        return `value_${options.index}`;
+    const normalizedType = type.toLowerCase();
+
+    if (integerTypes.has(normalizedType)) {
+      return this.generateInteger(options.pattern);
     }
+
+    if (stringTypes.has(normalizedType)) {
+      return this.generateString(options.pattern, options.index);
+    }
+
+    if (booleanTypes.has(normalizedType)) {
+      return Math.random() > 0.5;
+    }
+
+    if (dateTypes.has(normalizedType)) {
+      return this.generateDate(options.pattern);
+    }
+
+    if (normalizedType === 'uuid') {
+      return randomUUID();
+    }
+
+    if (jsonTypes.has(normalizedType)) {
+      return this.generateJSON(options.pattern);
+    }
+
+    return `value_${options.index}`;
   }
 
   private generateEdgeCaseValue(
@@ -486,7 +495,7 @@ export class AIDataGenerator {
     if (pattern?.type === 'realistic') {
       const names = ['Alice', 'Bob', 'Charlie', 'Diana', 'Eve', 'Frank', 'Grace', 'Henry'];
       const safeIndex = index ?? Math.floor(Math.random() * names.length);
-      return names[safeIndex % names.length] || 'DefaultName';
+      return names[safeIndex % names.length] ?? 'DefaultName';
     }
     return `string_value_${index ?? Math.floor(Math.random() * 1000)}`;
   }
@@ -570,29 +579,39 @@ export class AIDataGenerator {
     const enhancedSchema = { ...config.schema };
 
     for (const fk of relationshipConfig.foreignKeys) {
-      if (fk.fromTable === config.table && enhancedSchema[fk.fromColumn]) {
-        // Find referenced data
-        const referencedData = existingData.find((d) => d.table === fk.toTable);
-        if (referencedData && referencedData.records.length > 0) {
-          // Use existing foreign key values
-          const existingIds = referencedData.records.map((r) => r[fk.toColumn]).filter(Boolean);
-          const currentSchema = enhancedSchema[fk.fromColumn];
-          if (currentSchema) {
-            enhancedSchema[fk.fromColumn] = {
-              type: currentSchema.type || 'number',
-              ...(currentSchema.nullable !== undefined && { nullable: currentSchema.nullable }),
-              ...(currentSchema.constraints !== undefined && {
-                constraints: currentSchema.constraints,
-              }),
-              references: {
-                table: fk.toTable,
-                column: fk.toColumn,
-                values: existingIds,
-              },
-            };
-          }
-        }
+      if (fk.fromTable !== config.table) {
+        continue;
       }
+
+      const fromColumnSchema = enhancedSchema[fk.fromColumn];
+      if (!fromColumnSchema) {
+        continue;
+      }
+
+      const referencedData = existingData.find((data) => data.table === fk.toTable);
+      if (!referencedData?.records.length) {
+        continue;
+      }
+
+      const existingIds = referencedData.records
+        .map((record) => record[fk.toColumn])
+        .filter(Boolean);
+      if (existingIds.length === 0) {
+        continue;
+      }
+
+      enhancedSchema[fk.fromColumn] = {
+        type: fromColumnSchema.type ?? 'number',
+        ...(fromColumnSchema.nullable !== undefined && { nullable: fromColumnSchema.nullable }),
+        ...(fromColumnSchema.constraints !== undefined && {
+          constraints: fromColumnSchema.constraints,
+        }),
+        references: {
+          table: fk.toTable,
+          column: fk.toColumn,
+          values: existingIds,
+        },
+      };
     }
 
     return { ...config, schema: enhancedSchema };
@@ -648,7 +667,7 @@ export class AIDataGenerator {
 
   private detectEmailPattern(values: unknown[]): boolean {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return values.some((val) => typeof val === 'string' && emailRegex.test(val));
+    return values.some((value) => typeof value === 'string' && emailRegex.test(value));
   }
 
   private validateBusinessRules(record: Record<string, unknown>, rules: unknown[]): boolean {
@@ -701,7 +720,7 @@ export const generateRelationalTestData = (
 
 export const learnDataPatterns = (
   tableName: string,
-  sampleData: Record<string, unknown>[]
+  sampleData: Array<Record<string, unknown>>
 ): Promise<{
   patterns: Record<
     string,

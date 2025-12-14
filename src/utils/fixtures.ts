@@ -2,17 +2,46 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { MongoDBTestDB } from '../mongodb/client.js';
-import type { PostgresTestDB } from '../postgres/client.js';
 import { getCollection } from '../mongodb/collection.js';
+import type { PostgresTestDB } from '../postgres/client.js';
 import { addErrorToMeta } from './errors.js';
 import { createLogger } from './logging.js';
 import { withSpan } from './telemetry.js';
 
 const logger = createLogger('TestDB:Fixtures');
 
-export interface SqlFixtureOptions {
+const readSqlFixtureFile = (absolutePath: string): Promise<string> => {
+  // Fixtures are explicitly provided by the caller; this is expected in test utilities.
+  // eslint-disable-next-line security/detect-non-literal-fs-filename
+  return readFile(absolutePath, 'utf-8');
+};
+
+const applySqlStatements = async (
+  database: PostgresTestDB,
+  statements: string[],
+  absolutePath: string,
+  options?: SqlFixtureOptions
+): Promise<void> => {
+  for (const statement of statements) {
+    try {
+      await withSpan('postgres.fixture.apply', () => database.query(statement), {
+        fixturePath: absolutePath,
+      });
+    } catch (error) {
+      logger.error(
+        'Failed to apply SQL fixture',
+        addErrorToMeta({ fixturePath: absolutePath }, error)
+      );
+      if (options?.stopOnError) {
+        throw error;
+      }
+    }
+  }
+};
+
+export type SqlFixtureOptions = {
   stopOnError?: boolean;
-}
+};
 
 export const applySqlFixtures = async (
   database: PostgresTestDB,
@@ -21,34 +50,19 @@ export const applySqlFixtures = async (
 ): Promise<void> => {
   for (const fixturePath of fixturePaths) {
     const absolutePath = path.resolve(fixturePath);
-    const sql = await readFile(absolutePath, 'utf-8');
+    const sql = await readSqlFixtureFile(absolutePath);
     const statements = sql
       .split(/;\s*\n/)
       .map((stmt) => stmt.trim())
       .filter(Boolean);
-
-    for (const statement of statements) {
-      try {
-        await withSpan('postgres.fixture.apply', () => database.query(statement), {
-          fixturePath: absolutePath,
-        });
-      } catch (error) {
-        logger.error(
-          'Failed to apply SQL fixture',
-          addErrorToMeta({ fixturePath: absolutePath }, error)
-        );
-        if (options?.stopOnError) {
-          throw error;
-        }
-      }
-    }
+    await applySqlStatements(database, statements, absolutePath, options);
   }
 };
 
-export interface MongoFixtureDocument {
+export type MongoFixtureDocument = {
   collection: string;
-  documents: Record<string, unknown>[];
-}
+  documents: Array<Record<string, unknown>>;
+};
 
 export const applyMongoFixtures = async (
   database: MongoDBTestDB,
@@ -71,11 +85,11 @@ export const applyMongoFixtures = async (
 export const snapshotTableSchema = async (
   database: PostgresTestDB,
   table: string
-): Promise<Record<string, unknown>[]> => {
+): Promise<Array<Record<string, unknown>>> => {
   const sql = `SELECT column_name, data_type, is_nullable, column_default
     FROM information_schema.columns
     WHERE table_name = $1
     ORDER BY ordinal_position`;
   const result = await database.query(sql, [table]);
-  return (result as { rows: Record<string, unknown>[] }).rows;
+  return (result as { rows: Array<Record<string, unknown>> }).rows;
 };

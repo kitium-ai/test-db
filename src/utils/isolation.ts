@@ -7,17 +7,20 @@ import { createMongoDBTestDB } from '../mongodb/helpers.js';
 import type { PostgresTestDB } from '../postgres/client.js';
 import { createPostgresTestDB } from '../postgres/helpers.js';
 import type { MongoDBConfig, PostgresConfig } from '../types/index.js';
-import { createTestDbConfigBuilder, type TestEnvironmentPreset } from './config.js';
+import {
+  createTestDbConfigBuilder as createTestDatabaseConfigBuilder,
+  type TestEnvironmentPreset,
+} from './config.js';
 import { withSpan } from './telemetry.js';
 
-export interface TransactionalHarness {
+export type TransactionalHarness = {
   beforeEach: () => Promise<void>;
   afterEach: () => Promise<void>;
-}
+};
 
-export interface PostgresIsolationOptions {
+export type PostgresIsolationOptions = {
   tablesToTruncate?: string[];
-}
+};
 
 export const createPostgresTransactionalHarness = (
   database: PostgresTestDB,
@@ -28,31 +31,36 @@ export const createPostgresTransactionalHarness = (
   return {
     beforeEach: async () => {
       client = await database.leaseClient();
-      await withSpan('postgres.per-test.begin', () => client!.query('BEGIN'));
+      if (!client) {
+        throw new Error('Failed to lease database client');
+      }
+      const activeClient = client;
+      await withSpan('postgres.per-test.begin', () => activeClient.query('BEGIN'));
     },
     afterEach: async () => {
       if (!client) {
         return;
       }
+      const activeClient = client;
       try {
         if (options?.tablesToTruncate?.length) {
           const quoted = options.tablesToTruncate.map((t) => `"${t}"`).join(', ');
-          await client.query(`TRUNCATE TABLE ${quoted} CASCADE`);
+          await activeClient.query(`TRUNCATE TABLE ${quoted} CASCADE`);
         }
-        await withSpan('postgres.per-test.rollback', () => client!.query('ROLLBACK'));
+        await withSpan('postgres.per-test.rollback', () => activeClient.query('ROLLBACK'));
       } finally {
-        client.release();
+        activeClient.release();
         client = null;
       }
     },
   };
 };
 
-export interface MongoIsolationOptions {
+export type MongoIsolationOptions = {
   prefix?: string;
   preset?: TestEnvironmentPreset;
   overrides?: Partial<MongoDBConfig>;
-}
+};
 
 export const withPerTestMongoDatabase = (
   options: MongoIsolationOptions,
@@ -61,7 +69,9 @@ export const withPerTestMongoDatabase = (
     afterEach: (callback: () => Promise<void>) => void;
   }
 ): { getDb: () => MongoDBTestDB } => {
-  const builder = createTestDbConfigBuilder(options?.preset).withMongo(options?.overrides ?? {});
+  const builder = createTestDatabaseConfigBuilder(options?.preset).withMongo(
+    options?.overrides ?? {}
+  );
   let database_: MongoDBTestDB;
 
   lifecycle.beforeEach(async () => {
@@ -84,13 +94,13 @@ export const withPerTestMongoDatabase = (
   return { getDb: () => database_ };
 };
 
-export interface PostgresHarnessOptions {
+export type PostgresHarnessOptions = {
   preset?: TestEnvironmentPreset;
   overrides?: Partial<PostgresConfig>;
   databaseName?: string;
   schemas?: Record<string, string>;
   tablesToTruncate?: string[];
-}
+};
 
 export const withWorkerPostgresDatabase = (
   lifecycle: {
@@ -99,7 +109,9 @@ export const withWorkerPostgresDatabase = (
   },
   options?: PostgresHarnessOptions
 ): { getDb: () => PostgresTestDB } => {
-  const builder = createTestDbConfigBuilder(options?.preset).withPostgres(options?.overrides ?? {});
+  const builder = createTestDatabaseConfigBuilder(options?.preset).withPostgres(
+    options?.overrides ?? {}
+  );
   const baseConfig = builder.buildPostgres();
   const database = options?.databaseName ?? `${randomUUID().replace(/-/g, '').slice(0, 8)}_kitium`;
   let database_: PostgresTestDB;

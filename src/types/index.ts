@@ -7,50 +7,50 @@ import type { ILogger as KitiumLogger } from '@kitiumai/logger';
 /**
  * Database connection configuration
  */
-export interface DatabaseConfig {
+export type DatabaseConfig = {
   host: string;
   port: number;
   username: string;
   password: string;
   database: string;
-}
+};
 
 /**
  * PostgreSQL specific configuration
  */
-export interface PostgresConfig extends DatabaseConfig {
+export type PostgresConfig = {
   ssl?: boolean;
   connectionTimeout?: number;
   idleTimeout?: number;
   maxConnections?: number;
-}
+} & DatabaseConfig;
 
 /**
  * MongoDB specific configuration
  */
-export interface MongoDBConfig {
+export type MongoDBConfig = {
   uri: string;
   database: string;
   connectionTimeout?: number;
   serverSelectionTimeout?: number;
-}
+};
 
 /**
  * Test database base interface
  */
-export interface ITestDatabase {
+export type ITestDatabase = {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
   isConnected(): boolean;
   cleanup(): Promise<void>;
   seed(data: Record<string, unknown>): Promise<void>;
   execute(query: string, parameters?: unknown[]): Promise<unknown>;
-}
+};
 
 /**
  * PostgreSQL test database interface
  */
-export interface IPostgresTestDB extends ITestDatabase {
+export type IPostgresTestDB = {
   query(sql: string, parameters?: unknown[]): Promise<unknown>;
   transaction(callback: (client: unknown) => Promise<void>): Promise<void>;
   transactionalTest(callback: (client: unknown) => Promise<void>): Promise<void>;
@@ -59,27 +59,27 @@ export interface IPostgresTestDB extends ITestDatabase {
   createDatabase(databaseName: string): Promise<void>;
   dropDatabase(databaseName: string): Promise<void>;
   getConfig(): DatabaseConfig;
-}
+} & ITestDatabase;
 
 /**
  * MongoDB test database interface
  */
-export interface IMongoDBTestDB extends ITestDatabase {
+export type IMongoDBTestDB = {
   collection(name: string): Promise<unknown>;
   dropCollection(name: string): Promise<void>;
   dropDatabase(): Promise<void>;
   transaction(callback: (session: unknown) => Promise<void>): Promise<void>;
   getConfig(): MongoDBConfig;
-}
+} & ITestDatabase;
 
 /**
  * Test result interface
  */
-export interface TestResult {
+export type TestResult = {
   success: boolean;
   message?: string;
   error?: Error;
-}
+};
 
 /**
  * Connection state
@@ -94,6 +94,6 @@ export type ILogger = KitiumLogger;
 /**
  * Seed data interface
  */
-export interface SeedData {
+export type SeedData = {
   [collection: string]: unknown[];
-}
+};

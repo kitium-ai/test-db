@@ -2,9 +2,9 @@
  * @kitium-ai/test-db - PostgreSQL Helper functions
  */
 
-import { PostgresTestDB } from './client.js';
-import { PostgresConfig } from '../types/index.js';
+import type { PostgresConfig } from '../types/index.js';
 import { getPostgresConfig } from '../utils/config.js';
+import { PostgresTestDB } from './client.js';
 import {
   buildDeleteStatement,
   buildInsertStatement,
@@ -44,7 +44,7 @@ export async function dropTable(database: PostgresTestDB, tableName: string): Pr
 export async function insertData(
   database: PostgresTestDB,
   tableName: string,
-  data: Record<string, unknown>[]
+  data: Array<Record<string, unknown>>
 ): Promise<void> {
   for (const row of data) {
     const statement = buildInsertStatement(tableName, row);
@@ -115,7 +115,7 @@ export async function deleteData(
 export async function resetSequence(
   database: PostgresTestDB,
   tableName: string,
-  columnName: string = 'id'
+  columnName = 'id'
 ): Promise<void> {
   const sequenceName = `${tableName}_${columnName}_seq`;
   await database.query(`ALTER SEQUENCE "${sequenceName}" RESTART WITH 1`);

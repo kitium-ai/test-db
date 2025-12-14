@@ -11,7 +11,7 @@ import {
   fetchData,
   insertData,
 } from '../src/postgres/index.js';
-import { PostgresConfig } from '../src/types/index.js';
+import type { PostgresConfig } from '../src/types/index.js';
 
 describe('PostgreSQL Test Database', () => {
   let databaseConfig: PostgresConfig;
