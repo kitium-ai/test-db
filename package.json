@@ -164,16 +164,16 @@
   ],
   "sideEffects": false,
   "dependencies": {
-    "@kitiumai/logger": "^2.0.1",
+    "@kitiumai/logger": "^3.0.1",
+    "@kitiumai/test-core": "^3.0.0",
     "dotenv": "^16.3.1",
     "mongodb": "^6.3.0",
     "pg": "^8.11.3"
   },
   "devDependencies": {
-    "@kitiumai/config": "^2.0.1",
-    "@kitiumai/lint": "^2.0.1",
-    "@kitiumai/scripts": "^1.0.0",
-    "@kitiumai/test-core": "^2.0.1",
+    "@kitiumai/config": "^3.1.4",
+    "@kitiumai/lint": "^3.0.0",
+    "@kitiumai/scripts": "^2.0.0",
     "@types/jest": "^29.5.11",
     "@types/node": "^24.10.1",
     "@types/pg": "^8.15.6",

@@ -579,19 +579,19 @@ import { createPostgresTestDB, PostgresConfig } from '@kitium-ai/test-db';
 
 ### Available Subpath Exports
 
-| Subpath | Exports |
-|---------|---------|
-| `@kitium-ai/test-db` | All exports (barrel) |
-| `@kitium-ai/test-db/postgres` | PostgreSQL client, helpers, setup/teardown |
-| `@kitium-ai/test-db/mongodb` | MongoDB client, helpers, setup/teardown |
-| `@kitium-ai/test-db/types` | TypeScript types and interfaces |
-| `@kitium-ai/test-db/utils/config` | Config builders, validation, sanitization |
-| `@kitium-ai/test-db/utils/fixtures` | SQL/MongoDB fixture utilities |
-| `@kitium-ai/test-db/utils/frameworks` | Jest/Vitest test harness installers |
-| `@kitium-ai/test-db/utils/isolation` | Per-test database isolation utilities |
-| `@kitium-ai/test-db/utils/lifecycle` | Temporary database lifecycle management |
-| `@kitium-ai/test-db/utils/logging` | Logger factory with scopes |
-| `@kitium-ai/test-db/utils/telemetry` | OpenTelemetry span utilities |
+| Subpath                               | Exports                                    |
+| ------------------------------------- | ------------------------------------------ |
+| `@kitium-ai/test-db`                  | All exports (barrel)                       |
+| `@kitium-ai/test-db/postgres`         | PostgreSQL client, helpers, setup/teardown |
+| `@kitium-ai/test-db/mongodb`          | MongoDB client, helpers, setup/teardown    |
+| `@kitium-ai/test-db/types`            | TypeScript types and interfaces            |
+| `@kitium-ai/test-db/utils/config`     | Config builders, validation, sanitization  |
+| `@kitium-ai/test-db/utils/fixtures`   | SQL/MongoDB fixture utilities              |
+| `@kitium-ai/test-db/utils/frameworks` | Jest/Vitest test harness installers        |
+| `@kitium-ai/test-db/utils/isolation`  | Per-test database isolation utilities      |
+| `@kitium-ai/test-db/utils/lifecycle`  | Temporary database lifecycle management    |
+| `@kitium-ai/test-db/utils/logging`    | Logger factory with scopes                 |
+| `@kitium-ai/test-db/utils/telemetry`  | OpenTelemetry span utilities               |
 
 ### Integration with Kitium Shared Packages
 
@@ -612,6 +612,7 @@ import { measure, log } from '@kitiumai/scripts/utils';
 ```
 
 **Benefits:**
+
 - Consistent logging format across all Kitium packages
 - Centralized configuration with environment variable merging
 - Automatic sanitization of sensitive data in logs

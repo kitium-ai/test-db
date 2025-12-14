@@ -2,11 +2,12 @@
  * @kitium-ai/test-db - PostgreSQL Test Client
  */
 
-import { measure } from '@kitiumai/scripts/utils';
 import { Client, Pool, PoolClient, QueryResult } from 'pg';
 
 import { ConnectionState, IPostgresTestDB, PostgresConfig } from '../types/index.js';
 import { sanitizePostgresConfig, validatePostgresConfig } from '../utils/config.js';
+import { addErrorToMeta } from '../utils/errors.js';
+import { instrument } from '../utils/instrument.js';
 import { createLogger, ILogger } from '../utils/logging.js';
 import { withSpan } from '../utils/telemetry.js';
 
@@ -47,32 +48,30 @@ export class PostgresTestDB implements IPostgresTestDB {
     this.state = 'connecting';
 
     try {
-      await measure('PostgresTestDB.connect', async () =>
-        withSpan('postgres.connect', async () => {
-          this.pool = new Pool({
-            host: this.config.host,
-            port: this.config.port,
-            user: this.config.username,
-            password: this.config.password,
-            database: this.config.database,
-            ssl: this.config.ssl,
-            connectionTimeoutMillis: this.config.connectionTimeout || 5000,
-            idleTimeoutMillis: this.config.idleTimeout || 30000,
-            max: this.config.maxConnections || 20,
-          });
+      await instrument('PostgresTestDB.connect', 'postgres.connect', async () => {
+        this.pool = new Pool({
+          host: this.config.host,
+          port: this.config.port,
+          user: this.config.username,
+          password: this.config.password,
+          database: this.config.database,
+          ssl: this.config.ssl,
+          connectionTimeoutMillis: this.config.connectionTimeout || 5000,
+          idleTimeoutMillis: this.config.idleTimeout || 30000,
+          max: this.config.maxConnections || 20,
+        });
 
-          // Test the connection
-          const client = await this.pool.connect();
-          client.release();
-        })
-      );
+        // Test the connection
+        const client = await this.pool.connect();
+        client.release();
+      });
 
       this.state = 'connected';
       this.logger.info('Connected to PostgreSQL database');
     } catch (error) {
       this.state = 'disconnected';
       const error_ = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Failed to connect to PostgreSQL', undefined, error_);
+      this.logger.error('Failed to connect to PostgreSQL', addErrorToMeta(undefined, error_));
       throw error_;
     }
   }
@@ -88,19 +87,17 @@ export class PostgresTestDB implements IPostgresTestDB {
     this.state = 'disconnecting';
 
     try {
-      await measure('PostgresTestDB.disconnect', async () =>
-        withSpan('postgres.disconnect', async () => {
-          if (this.pool) {
-            await this.pool.end();
-            this.pool = null;
-          }
-        })
-      );
+      await instrument('PostgresTestDB.disconnect', 'postgres.disconnect', async () => {
+        if (this.pool) {
+          await this.pool.end();
+          this.pool = null;
+        }
+      });
       this.state = 'disconnected';
       this.logger.info('Disconnected from PostgreSQL database');
     } catch (error) {
       const error_ = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Error disconnecting from PostgreSQL', undefined, error_);
+      this.logger.error('Error disconnecting from PostgreSQL', addErrorToMeta(undefined, error_));
       throw error_;
     }
   }
@@ -128,7 +125,7 @@ export class PostgresTestDB implements IPostgresTestDB {
       return result;
     } catch (error) {
       const error_ = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Query execution failed', { sql }, error_);
+      this.logger.error('Query execution failed', addErrorToMeta({ sql }, error_));
       throw error_;
     }
   }
@@ -174,7 +171,7 @@ export class PostgresTestDB implements IPostgresTestDB {
     } catch (error) {
       await client.query('ROLLBACK');
       const error_ = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Transaction rolled back', undefined, error_);
+      this.logger.error('Transaction rolled back', addErrorToMeta(undefined, error_));
       throw error_;
     } finally {
       client.release();
@@ -222,7 +219,7 @@ export class PostgresTestDB implements IPostgresTestDB {
       this.logger.info('Truncated tables', { tables });
     } catch (error) {
       const error_ = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Failed to truncate tables', { tables }, error_);
+      this.logger.error('Failed to truncate tables', addErrorToMeta({ tables }, error_));
       throw error_;
     }
   }
@@ -257,7 +254,10 @@ export class PostgresTestDB implements IPostgresTestDB {
       this.logger.info('Created database', { database: databaseName });
     } catch (error) {
       const error_ = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Failed to create database', { database: databaseName }, error_);
+      this.logger.error(
+        'Failed to create database',
+        addErrorToMeta({ database: databaseName }, error_)
+      );
       throw error_;
     } finally {
       await client.end();
@@ -305,7 +305,10 @@ export class PostgresTestDB implements IPostgresTestDB {
       this.logger.info('Dropped database', { database: databaseName });
     } catch (error) {
       const error_ = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Failed to drop database', { database: databaseName }, error_);
+      this.logger.error(
+        'Failed to drop database',
+        addErrorToMeta({ database: databaseName }, error_)
+      );
       throw error_;
     } finally {
       await client.end();
@@ -349,7 +352,7 @@ export class PostgresTestDB implements IPostgresTestDB {
       this.logger.info('Database seeded successfully');
     } catch (error) {
       const error_ = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Failed to seed database', undefined, error_);
+      this.logger.error('Failed to seed database', addErrorToMeta(undefined, error_));
       throw error_;
     }
   }

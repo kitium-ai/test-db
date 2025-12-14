@@ -3,6 +3,8 @@ import path from 'node:path';
 
 import type { MongoDBTestDB } from '../mongodb/client.js';
 import type { PostgresTestDB } from '../postgres/client.js';
+import { getCollection } from '../mongodb/collection.js';
+import { addErrorToMeta } from './errors.js';
 import { createLogger } from './logging.js';
 import { withSpan } from './telemetry.js';
 
@@ -31,7 +33,10 @@ export const applySqlFixtures = async (
           fixturePath: absolutePath,
         });
       } catch (error) {
-        logger.error('Failed to apply SQL fixture', { fixturePath: absolutePath }, error as Error);
+        logger.error(
+          'Failed to apply SQL fixture',
+          addErrorToMeta({ fixturePath: absolutePath }, error)
+        );
         if (options?.stopOnError) {
           throw error;
         }
@@ -53,11 +58,9 @@ export const applyMongoFixtures = async (
     await withSpan(
       'mongodb.fixture.apply',
       async () => {
-        const collection = (await database.collection(fixture.collection)) as {
-          insertMany: (docs: never[]) => Promise<void>;
-        };
+        const collection = await getCollection(database, fixture.collection);
         if (fixture.documents.length) {
-          await collection.insertMany(fixture.documents as never[]);
+          await collection.insertMany(fixture.documents);
         }
       },
       { collection: fixture.collection }

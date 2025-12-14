@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { measure } from '@kitiumai/scripts/utils';
-import { getTestLogger } from '@kitiumai/test-core';
 
 import { createMongoDBTestDB } from '../mongodb/helpers.js';
 import type { MongoDBTestDB } from '../mongodb/client.js';
@@ -14,8 +13,9 @@ import {
   createTestDbConfigBuilder as createTestDatabaseConfigBuilder,
   type TestEnvironmentPreset,
 } from './config.js';
+import { createLogger } from './logging.js';
 
-const logger = getTestLogger();
+const logger = createLogger('TestDB:Lifecycle');
 
 const uniqueName = (prefix: string): string =>
   `${prefix}_${Date.now().toString(36)}_${randomUUID().split('-')[0]}`;

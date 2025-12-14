@@ -5,6 +5,12 @@
 import { PostgresTestDB } from './client.js';
 import { PostgresConfig } from '../types/index.js';
 import { getPostgresConfig } from '../utils/config.js';
+import {
+  buildDeleteStatement,
+  buildInsertStatement,
+  buildUpdateStatement,
+  buildWhereClause,
+} from './sql.js';
 
 /**
  * Create a PostgreSQL test database instance
@@ -41,12 +47,8 @@ export async function insertData(
   data: Record<string, unknown>[]
 ): Promise<void> {
   for (const row of data) {
-    const columns = Object.keys(row);
-    const placeholders = columns.map((_, index) => `$${index + 1}`).join(', ');
-    const values = columns.map((col) => row[col]);
-
-    const sql = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders})`;
-    await database.query(sql, values);
+    const statement = buildInsertStatement(tableName, row);
+    await database.query(statement.sql, statement.values);
   }
 }
 
@@ -58,20 +60,11 @@ export async function fetchData(
   tableName: string,
   where?: Record<string, unknown>
 ): Promise<unknown[]> {
-  let sql = `SELECT * FROM ${tableName}`;
-  const values: unknown[] = [];
-
-  if (where) {
-    const conditions = Object.keys(where)
-      .map((key, index) => {
-        values.push(where[key]);
-        return `${key} = $${index + 1}`;
-      })
-      .join(' AND ');
-    sql += ` WHERE ${conditions}`;
-  }
-
-  const result = await database.query(sql, values);
+  const whereClause = buildWhereClause(where, 1);
+  const result = await database.query(
+    `SELECT * FROM ${tableName}${whereClause.clause}`,
+    whereClause.values
+  );
   return result.rows;
 }
 
@@ -83,20 +76,11 @@ export async function countRecords(
   tableName: string,
   where?: Record<string, unknown>
 ): Promise<number> {
-  let sql = `SELECT COUNT(*) as count FROM ${tableName}`;
-  const values: unknown[] = [];
-
-  if (where) {
-    const conditions = Object.keys(where)
-      .map((key, index) => {
-        values.push(where[key]);
-        return `${key} = $${index + 1}`;
-      })
-      .join(' AND ');
-    sql += ` WHERE ${conditions}`;
-  }
-
-  const result = await database.query(sql, values);
+  const whereClause = buildWhereClause(where, 1);
+  const result = await database.query(
+    `SELECT COUNT(*) as count FROM ${tableName}${whereClause.clause}`,
+    whereClause.values
+  );
   return (result.rows[0] as { count: number }).count;
 }
 
@@ -109,18 +93,8 @@ export async function updateData(
   updates: Record<string, unknown>,
   where: Record<string, unknown>
 ): Promise<void> {
-  const updateColumns = Object.keys(updates)
-    .map((key, index) => `${key} = $${index + 1}`)
-    .join(', ');
-
-  const whereConditions = Object.keys(where)
-    .map((key, index) => `${key} = $${Object.keys(updates).length + index + 1}`)
-    .join(' AND ');
-
-  const values = [...Object.values(updates), ...Object.values(where)];
-
-  const sql = `UPDATE ${tableName} SET ${updateColumns} WHERE ${whereConditions}`;
-  await database.query(sql, values);
+  const statement = buildUpdateStatement(tableName, updates, where);
+  await database.query(statement.sql, statement.values);
 }
 
 /**
@@ -131,15 +105,8 @@ export async function deleteData(
   tableName: string,
   where: Record<string, unknown>
 ): Promise<void> {
-  const conditions = Object.keys(where)
-    .map((key, index) => {
-      return `${key} = $${index + 1}`;
-    })
-    .join(' AND ');
-
-  const values = Object.values(where);
-  const sql = `DELETE FROM ${tableName} WHERE ${conditions}`;
-  await database.query(sql, values);
+  const statement = buildDeleteStatement(tableName, where);
+  await database.query(statement.sql, statement.values);
 }
 
 /**

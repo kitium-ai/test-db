@@ -2,9 +2,8 @@
  * @kitium-ai/test-db - MongoDB Helper functions
  */
 
-import { Collection } from 'mongodb';
-
 import { MongoDBTestDB } from './client.js';
+import { getCollection } from './collection.js';
 import { MongoDBConfig } from '../types/index.js';
 import { getMongoDBConfig } from '../utils/config.js';
 
@@ -24,7 +23,7 @@ export async function insertDocuments(
   collectionName: string,
   documents: Record<string, unknown>[]
 ): Promise<void> {
-  const collection = (await database.collection(collectionName)) as Collection;
+  const collection = await getCollection(database, collectionName);
   if (documents.length > 0) {
     await collection.insertMany(documents);
   }
@@ -38,7 +37,7 @@ export async function findDocuments(
   collectionName: string,
   filter?: Record<string, unknown>
 ): Promise<unknown[]> {
-  const collection = (await database.collection(collectionName)) as Collection;
+  const collection = await getCollection(database, collectionName);
   return collection.find(filter || {}).toArray();
 }
 
@@ -50,7 +49,7 @@ export async function findOneDocument(
   collectionName: string,
   filter: Record<string, unknown>
 ): Promise<unknown> {
-  const collection = (await database.collection(collectionName)) as Collection;
+  const collection = await getCollection(database, collectionName);
   return collection.findOne(filter);
 }
 
@@ -63,7 +62,7 @@ export async function updateDocuments(
   filter: Record<string, unknown>,
   update: Record<string, unknown>
 ): Promise<void> {
-  const collection = (await database.collection(collectionName)) as Collection;
+  const collection = await getCollection(database, collectionName);
   await collection.updateMany(filter, { $set: update });
 }
 
@@ -75,7 +74,7 @@ export async function deleteDocuments(
   collectionName: string,
   filter: Record<string, unknown>
 ): Promise<void> {
-  const collection = (await database.collection(collectionName)) as Collection;
+  const collection = await getCollection(database, collectionName);
   await collection.deleteMany(filter);
 }
 
@@ -87,7 +86,7 @@ export async function countDocuments(
   collectionName: string,
   filter?: Record<string, unknown>
 ): Promise<number> {
-  const collection = (await database.collection(collectionName)) as Collection;
+  const collection = await getCollection(database, collectionName);
   return collection.countDocuments(filter || {});
 }
 
@@ -110,7 +109,7 @@ export async function createIndex(
   keys: Record<string, 1 | -1>,
   options?: Record<string, unknown>
 ): Promise<void> {
-  const collection = (await database.collection(collectionName)) as Collection;
+  const collection = await getCollection(database, collectionName);
   await collection.createIndex(keys, options);
 }
 
@@ -127,7 +126,7 @@ export async function setupTestDatabase(
   try {
     if (collectionNames) {
       for (const collectionName of collectionNames) {
-        const collection = (await database.collection(collectionName)) as Collection;
+        const collection = await getCollection(database, collectionName);
         // Create collection by inserting and deleting a document
         await collection.insertOne({});
         await collection.deleteOne({});
@@ -170,6 +169,6 @@ export async function aggregate(
   collectionName: string,
   pipeline: Record<string, unknown>[]
 ): Promise<unknown[]> {
-  const collection = (await database.collection(collectionName)) as Collection;
+  const collection = await getCollection(database, collectionName);
   return collection.aggregate(pipeline as never).toArray();
 }

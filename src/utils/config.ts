@@ -3,7 +3,6 @@
  */
 
 import packageTemplate from '@kitiumai/config/packageBase.cjs';
-import { log } from '@kitiumai/scripts/utils';
 import { deepMerge, getConfigManager, sanitizeForLogging } from '@kitiumai/test-core';
 
 import { MongoDBConfig, PostgresConfig } from '../types/index.js';
@@ -42,7 +41,7 @@ export function getPostgresConfig(overrides?: Partial<PostgresConfig>): Postgres
   const merged = deepMerge(defaults, overrides ?? {});
   const sanitized = sanitizePostgresConfig(merged);
   logger.debug('Resolved PostgreSQL configuration', sanitized);
-  log('info', `[test-db] PostgreSQL configuration loaded (node ${MIN_NODE_VERSION})`);
+  logger.info('PostgreSQL configuration loaded', { node: MIN_NODE_VERSION });
   return merged;
 }
 
@@ -65,7 +64,7 @@ export function getMongoDBConfig(overrides?: Partial<MongoDBConfig>): MongoDBCon
   const merged = deepMerge(defaults, overrides ?? {});
   const sanitized = sanitizeMongoDBConfig(merged);
   logger.debug('Resolved MongoDB configuration', sanitized);
-  log('info', `[test-db] MongoDB configuration loaded (node ${MIN_NODE_VERSION})`);
+  logger.info('MongoDB configuration loaded', { node: MIN_NODE_VERSION });
   return merged;
 }
 

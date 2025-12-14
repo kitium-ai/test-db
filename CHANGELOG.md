@@ -2,7 +2,7 @@
 
 ## [v2.0.1] - 2025-11-30
 
-bumped patch version for kitiumai packages 
+bumped patch version for kitiumai packages
 
 ## [v2.0.0] - 2025-11-28
 
