@@ -124,66 +124,81 @@ export type TestEnvironmentPreset = 'local' | 'ci' | 'staging';
 
 const inferDefaultPreset = (): TestEnvironmentPreset => (configManager.get('ci') ? 'ci' : 'local');
 
-const presetDefaults: Record<
-  TestEnvironmentPreset,
-  { postgres: Partial<PostgresConfig>; mongo: Partial<MongoDBConfig> }
-> = {
-  local: {
-    postgres: {
-      host: readEnvironmentValue(process.env, 'POSTGRES_HOST') ?? 'localhost',
-      ssl: false,
-    },
-    mongo: {
-      uri:
-        readEnvironmentValue(process.env, 'MONGO_URI') ??
-        `mongodb://${readEnvironmentValue(process.env, 'MONGO_USER') ?? 'root'}:${
-          readEnvironmentValue(process.env, 'MONGO_PASSWORD') ?? 'root'
-        }@${readEnvironmentValue(process.env, 'MONGO_HOST') ?? 'localhost'}:${
-          readEnvironmentValue(process.env, 'MONGO_PORT') ?? '27017'
-        }`,
-    },
+const buildMongoUri = (environment: NodeJS.ProcessEnv, hostFallback: string): string => {
+  const user = readEnvironmentValue(environment, 'MONGO_USER') ?? 'root';
+  const password = readEnvironmentValue(environment, 'MONGO_PASSWORD') ?? 'root';
+  const host = readEnvironmentValue(environment, 'MONGO_HOST') ?? hostFallback;
+  const port = readEnvironmentValue(environment, 'MONGO_PORT') ?? '27017';
+  return `mongodb://${user}:${password}@${host}:${port}`;
+};
+
+const getLocalPresetDefaults = (
+  environment: NodeJS.ProcessEnv
+): { postgres: Partial<PostgresConfig>; mongo: Partial<MongoDBConfig> } => ({
+  postgres: {
+    host: readEnvironmentValue(environment, 'POSTGRES_HOST') ?? 'localhost',
+    ssl: false,
   },
-  ci: {
-    postgres: { host: 'postgres', ssl: false },
-    mongo: {
-      uri:
-        readEnvironmentValue(process.env, 'MONGO_URI') ??
-        `mongodb://${readEnvironmentValue(process.env, 'MONGO_USER') ?? 'root'}:${
-          readEnvironmentValue(process.env, 'MONGO_PASSWORD') ?? 'root'
-        }@mongo:27017`,
-    },
+  mongo: {
+    uri: readEnvironmentValue(environment, 'MONGO_URI') ?? buildMongoUri(environment, 'localhost'),
   },
-  staging: {
-    postgres: {
-      host:
-        readEnvironmentValue(process.env, 'STAGING_POSTGRES_HOST') ??
-        readEnvironmentValue(process.env, 'POSTGRES_HOST') ??
-        readEnvironmentValue(process.env, 'POSTGRES_STAGING_HOST') ??
-        'staging-postgres',
-      ssl: true,
-    },
-    mongo: {
-      uri:
-        readEnvironmentValue(process.env, 'STAGING_MONGO_URI') ??
-        `mongodb://${readEnvironmentValue(process.env, 'MONGO_USER') ?? 'root'}:${
-          readEnvironmentValue(process.env, 'MONGO_PASSWORD') ?? 'root'
-        }@${readEnvironmentValue(process.env, 'MONGO_HOST') ?? 'staging-mongo'}:${
-          readEnvironmentValue(process.env, 'MONGO_PORT') ?? '27017'
-        }`,
-    },
+});
+
+const getCiPresetDefaults = (
+  environment: NodeJS.ProcessEnv
+): { postgres: Partial<PostgresConfig>; mongo: Partial<MongoDBConfig> } => ({
+  postgres: { host: 'postgres', ssl: false },
+  mongo: {
+    uri: readEnvironmentValue(environment, 'MONGO_URI') ?? buildMongoUri(environment, 'mongo'),
   },
+});
+
+const getStagingPresetDefaults = (
+  environment: NodeJS.ProcessEnv
+): { postgres: Partial<PostgresConfig>; mongo: Partial<MongoDBConfig> } => ({
+  postgres: {
+    host:
+      readEnvironmentValue(environment, 'STAGING_POSTGRES_HOST') ??
+      readEnvironmentValue(environment, 'POSTGRES_HOST') ??
+      readEnvironmentValue(environment, 'POSTGRES_STAGING_HOST') ??
+      'staging-postgres',
+    ssl: true,
+  },
+  mongo: {
+    uri:
+      readEnvironmentValue(environment, 'STAGING_MONGO_URI') ??
+      readEnvironmentValue(environment, 'MONGO_URI') ??
+      buildMongoUri(environment, 'staging-mongo'),
+  },
+});
+
+const resolvePresetDefaults = (
+  preset: TestEnvironmentPreset
+): { postgres: Partial<PostgresConfig>; mongo: Partial<MongoDBConfig> } => {
+  const environment = process.env;
+
+  if (preset === 'local') {
+    return getLocalPresetDefaults(environment);
+  }
+
+  if (preset === 'ci') {
+    return getCiPresetDefaults(environment);
+  }
+
+  return getStagingPresetDefaults(environment);
 };
 
 const resolvePreset = (preset?: TestEnvironmentPreset): TestEnvironmentPreset =>
-  preset && presetDefaults[preset] ? preset : inferDefaultPreset();
+  preset ?? inferDefaultPreset();
 
 export function createPostgresPreset(
   preset?: TestEnvironmentPreset,
   overrides?: Partial<PostgresConfig>
 ): PostgresConfig {
   const target = resolvePreset(preset);
+  const defaults = resolvePresetDefaults(target);
   return getPostgresConfig({
-    ...presetDefaults[target].postgres,
+    ...defaults.postgres,
     ...overrides,
   });
 }
@@ -193,8 +208,9 @@ export function createMongoPreset(
   overrides?: Partial<MongoDBConfig>
 ): MongoDBConfig {
   const target = resolvePreset(preset);
+  const defaults = resolvePresetDefaults(target);
   return getMongoDBConfig({
-    ...presetDefaults[target].mongo,
+    ...defaults.mongo,
     ...overrides,
   });
 }

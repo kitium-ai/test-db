@@ -2,9 +2,10 @@
  * @kitium-ai/test-db - Logging utilities
  */
 
-import { createLogger as createKitiumLogger, type ILogger } from '@kitiumai/logger';
+import { createMockLogger, type ILogger } from '@kitiumai/logger';
 
-const rootLogger = createKitiumLogger('development', { serviceName: '@kitiumai/test-db' });
+// Use mock logger to prevent async operations that hang Jest
+const rootLogger = createMockLogger();
 
 export function createLogger(scope: string): ILogger {
   if (typeof rootLogger.child === 'function') {
